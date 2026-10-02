@@ -31,7 +31,8 @@ PROVISIONABLE_TYPES = [
         'model': 'dcim.Rack',
         'model_name': 'rack',
         'add_url': '/dcim/racks/add/',
-        'coverable': False,
+        'coverable': True,
+        'type_optional': True,           # NetBox racks may have no rack type
     },
 ]
 
@@ -61,7 +62,7 @@ def entry_for_line_item(line_item):
 
 
 def coverable_model_names():
-    """Lowercase model names that can be assigned to coverage lines, e.g. ['device', 'module']."""
+    """Lowercase model names that can be assigned to coverage lines, e.g. ['device', 'module', 'rack']."""
     return [t['model_name'] for t in PROVISIONABLE_TYPES if t['coverable']]
 
 
@@ -72,3 +73,11 @@ def coverable_limit_choices_to():
 def get_coverable_models():
     from django.apps import apps
     return [apps.get_model(t['model']) for t in PROVISIONABLE_TYPES if t['coverable']]
+
+
+def entry_for_model_name(model_name):
+    """Return the registry entry for a lowercase model name, or None."""
+    for entry in PROVISIONABLE_TYPES:
+        if entry['model_name'] == model_name:
+            return entry
+    return None

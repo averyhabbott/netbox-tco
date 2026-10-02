@@ -446,7 +446,7 @@ class ContractBase(NetBoxModel):
 
 
 class ContractLineBase(NetBoxModel):
-    """One device or module on a contract or License for one term. Unassigned = pending."""
+    """One device, module, or rack on a contract or License for one term. Unassigned = pending."""
     assigned_object_type = models.ForeignKey(
         ContentType,
         on_delete=models.PROTECT,
@@ -535,7 +535,7 @@ class ContractLineBase(NetBoxModel):
         if self.assigned_object_type_id and (
             self.assigned_object_type.app_label, self.assigned_object_type.model
         ) not in [('dcim', m) for m in coverable_model_names()]:
-            raise ValidationError('Only a device or module can be assigned.')
+            raise ValidationError('Only a device, module, or rack can be assigned.')
 
         if not self.start_date:
             raise ValidationError({'start_date': 'Required (or set a start date on the funding line item).'})
@@ -760,8 +760,8 @@ class MilestoneType(NetBoxModel):
 
 class LifecycleRecord(NetBoxModel):
     """
-    One vendor end-of-life notice. Device and module types each appear on at most one record,
-    so the dates shown for any device or module are unambiguous. The vendor is derived from the
+    One vendor end-of-life notice. Device, module, and rack types each appear on at most one
+    record, so the dates shown for any device, module, or rack are unambiguous. The vendor is derived from the
     attached types (same idea as part numbers).
     """
     name = models.CharField(max_length=200)
@@ -773,6 +773,11 @@ class LifecycleRecord(NetBoxModel):
     )
     module_types = models.ManyToManyField(
         'dcim.ModuleType',
+        blank=True,
+        related_name='netbox_tco_lifecycle_records',
+    )
+    rack_types = models.ManyToManyField(
+        'dcim.RackType',
         blank=True,
         related_name='netbox_tco_lifecycle_records',
     )
@@ -793,17 +798,19 @@ class LifecycleRecord(NetBoxModel):
         from dcim.models import Manufacturer
         return Manufacturer.objects.filter(
             models.Q(device_types__netbox_tco_lifecycle_records=self) |
-            models.Q(module_types__netbox_tco_lifecycle_records=self)
+            models.Q(module_types__netbox_tco_lifecycle_records=self) |
+            models.Q(rack_types__netbox_tco_lifecycle_records=self)
         ).distinct()
 
     @classmethod
-    def type_conflicts(cls, device_types=(), module_types=(), exclude_pk=None):
+    def type_conflicts(cls, device_types=(), module_types=(), rack_types=(), exclude_pk=None):
         """
         Return error messages for any of the given types already on another record.
         Checked in the form and API serializer, since M2M values aren't saved yet when clean() runs.
         """
         errors = []
-        for field, types in (('device_types', device_types), ('module_types', module_types)):
+        for field, types in (('device_types', device_types), ('module_types', module_types),
+                             ('rack_types', rack_types)):
             others = cls.objects.filter(**{f'{field}__in': types})
             if exclude_pk:
                 others = others.exclude(pk=exclude_pk)
@@ -814,7 +821,7 @@ class LifecycleRecord(NetBoxModel):
 
     @staticmethod
     def for_type(type_obj):
-        """The record covering a DeviceType or ModuleType, or None."""
+        """The record covering a DeviceType, ModuleType, or RackType, or None."""
         if type_obj is None:
             return None
         return type_obj.netbox_tco_lifecycle_records.prefetch_related('milestones__milestone_type').first()

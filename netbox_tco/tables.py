@@ -173,6 +173,7 @@ class LifecycleRecordTable(NetBoxTable):
     )
     device_type_count = tables.Column(verbose_name='Device Types')
     module_type_count = tables.Column(verbose_name='Module Types')
+    rack_type_count = tables.Column(verbose_name='Rack Types')
     milestones = columns.TemplateColumn(
         template_code='{% load builtins.filters %}{% for m in record.milestones.all %}'
                       '<span class="badge" style="color: #{{ m.milestone_type.color|fgcolor }}; '
@@ -190,9 +191,9 @@ class LifecycleRecordTable(NetBoxTable):
     class Meta(NetBoxTable.Meta):
         model = LifecycleRecord
         fields = ('pk', 'id', 'name', 'vendors', 'description', 'notice_date', 'device_type_count',
-                  'module_type_count', 'milestones', 'reference_url', 'tags')
+                  'module_type_count', 'rack_type_count', 'milestones', 'reference_url', 'tags')
         default_columns = ('pk', 'name', 'vendors', 'notice_date', 'device_type_count', 'module_type_count',
-                           'milestones')
+                           'rack_type_count', 'milestones')
 
 
 class LifecycleMilestoneTable(tables.Table):

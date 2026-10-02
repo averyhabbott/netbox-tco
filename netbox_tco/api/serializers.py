@@ -170,7 +170,7 @@ class LifecycleRecordSerializer(NetBoxModelSerializer):
 
     class Meta:
         model = LifecycleRecord
-        fields = ('id', 'url', 'display', 'name', 'description', 'device_types', 'module_types',
+        fields = ('id', 'url', 'display', 'name', 'description', 'device_types', 'module_types', 'rack_types',
                   'reference_url', 'notice_date', 'milestones', 'tags', 'custom_fields', 'created',
                   'last_updated')
         brief_fields = ('id', 'url', 'display', 'name')
@@ -180,8 +180,9 @@ class LifecycleRecordSerializer(NetBoxModelSerializer):
         instance = self.instance
         device_types = data.get('device_types', instance.device_types.all() if instance else [])
         module_types = data.get('module_types', instance.module_types.all() if instance else [])
+        rack_types = data.get('rack_types', instance.rack_types.all() if instance else [])
         errors = LifecycleRecord.type_conflicts(
-            device_types=list(device_types), module_types=list(module_types),
+            device_types=list(device_types), module_types=list(module_types), rack_types=list(rack_types),
             exclude_pk=instance.pk if instance else None,
         )
         if errors:

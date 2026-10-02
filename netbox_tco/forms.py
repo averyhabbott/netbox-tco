@@ -1,6 +1,6 @@
 from django import forms
-from django.db.models import Count, Q
-from dcim.models import Device, DeviceType, Manufacturer, Module, ModuleType, RackType
+from django.db.models import Count
+from dcim.models import Device, DeviceType, Manufacturer, Module, ModuleType, Rack, RackType
 from netbox.forms import NetBoxModelBulkEditForm, NetBoxModelForm, NetBoxModelFilterSetForm
 from utilities.forms import add_blank_choice
 from utilities.forms.fields import DynamicModelChoiceField, DynamicModelMultipleChoiceField, SlugField
@@ -201,7 +201,7 @@ class ContractFormMixin:
 
 
 class AssignedObjectFormMixin:
-    """Device / module pickers mapped onto a line's generic assigned_object."""
+    """Device / module / rack pickers mapped onto a line's generic assigned_object."""
 
     def __init__(self, *args, **kwargs):
         instance = kwargs.get('instance')
@@ -213,11 +213,10 @@ class AssignedObjectFormMixin:
 
     def clean(self):
         super().clean()
-        device = self.cleaned_data.get('device')
-        module = self.cleaned_data.get('module')
-        if device and module:
-            raise forms.ValidationError('Choose a device or a module, not both.')
-        self.instance.assigned_object = device or module or None
+        chosen = [obj for obj in (self.cleaned_data.get(f) for f in ('device', 'module', 'rack')) if obj]
+        if len(chosen) > 1:
+            raise forms.ValidationError('Choose only one of device, module, or rack.')
+        self.instance.assigned_object = chosen[0] if chosen else None
         if self.instance.assigned_object is None:
             self.instance.assigned_object_type = None
             self.instance.assigned_object_id = None
@@ -238,7 +237,7 @@ class LineQuantityFormMixin:
         if quantity > 1:
             if self.instance.assigned_object is not None:
                 raise forms.ValidationError({
-                    'quantity': 'Leave the device and module blank to add more than one line.'
+                    'quantity': 'Leave the device, module, and rack blank to add more than one line.'
                 })
             li = self.cleaned_data.get('funding_line_item')
             if li is not None:
@@ -265,7 +264,7 @@ class LineQuantityFormMixin:
 def _quantity_field():
     return forms.IntegerField(
         min_value=1, max_value=1000, initial=1,
-        help_text='Number of identical lines to add. More than 1 creates pending lines (no device or module).',
+        help_text='Number of identical lines to add. More than 1 creates pending lines (nothing assigned).',
     )
 
 
@@ -275,6 +274,10 @@ def _device_field():
 
 def _module_field():
     return DynamicModelChoiceField(queryset=Module.objects.all(), required=False, selector=True)
+
+
+def _rack_field():
+    return DynamicModelChoiceField(queryset=Rack.objects.all(), required=False, selector=True)
 
 
 def _date_field(help_text=''):
@@ -328,6 +331,7 @@ class CoverageLineForm(LineQuantityFormMixin, AssignedObjectFormMixin, NetBoxMod
     quantity = _quantity_field()
     device = _device_field()
     module = _module_field()
+    rack = _rack_field()
     funding_line_item = DynamicModelChoiceField(
         queryset=LineItem.objects.filter(line_type=LineItemTypeChoices.TYPE_SUPPORT),
         required=False,
@@ -345,7 +349,7 @@ class CoverageLineForm(LineQuantityFormMixin, AssignedObjectFormMixin, NetBoxMod
 
     fieldsets = (
         FieldSet('support_contract', 'funding_line_item', name='Contract'),
-        FieldSet('quantity', 'device', 'module', name='Covered Object (leave both blank if pending)'),
+        FieldSet('quantity', 'device', 'module', 'rack', name='Covered Object (leave all blank if pending)'),
         FieldSet('service_level', 'start_date', 'end_date', 'price', name='Coverage'),
         FieldSet('tags', name='Tags'),
     )
@@ -432,6 +436,7 @@ class LicenseLineForm(LineQuantityFormMixin, AssignedObjectFormMixin, NetBoxMode
     quantity = _quantity_field()
     device = _device_field()
     module = _module_field()
+    rack = _rack_field()
     funding_line_item = DynamicModelChoiceField(
         queryset=LineItem.objects.filter(line_type=LineItemTypeChoices.TYPE_LICENSE),
         required=False,
@@ -449,7 +454,7 @@ class LicenseLineForm(LineQuantityFormMixin, AssignedObjectFormMixin, NetBoxMode
 
     fieldsets = (
         FieldSet('license', 'funding_line_item', name='License'),
-        FieldSet('quantity', 'device', 'module', name='Licensed Object (leave both blank if pending)'),
+        FieldSet('quantity', 'device', 'module', 'rack', name='Licensed Object (leave all blank if pending)'),
         FieldSet('license_type', 'billing_term', 'start_date', 'end_date', 'price', name='Term'),
         FieldSet('license_key', name='Activation'),
         FieldSet('tags', name='Tags'),
@@ -553,8 +558,8 @@ class AddToContractForm(forms.Form):
             f[name].queryset = model.objects.all()
         f['seed'].choices = (
             (self.SEED_PENDING, 'Blank pending lines (assign devices later)'),
-            (self.SEED_QPI, 'Devices and modules from hardware line items on this QPI'),
-            (self.SEED_CONTRACT, f'Devices and modules currently on a {noun} (renewal)'),
+            (self.SEED_QPI, 'Devices, modules, and racks from hardware line items on this QPI'),
+            (self.SEED_CONTRACT, f'Devices, modules, and racks currently on a {noun} (renewal)'),
         )
         f['source_contract'].label = f'Copy from {noun}'
         f['source_contract'].help_text = (
@@ -562,12 +567,12 @@ class AddToContractForm(forms.Form):
         )
         hardware = LineItem.objects.filter(
             qpi=line_item.qpi, line_type=LineItemTypeChoices.TYPE_HARDWARE,
-        ).filter(Q(device_type__isnull=False) | Q(module_type__isnull=False)).annotate(
+        ).annotate(
             provisioned=Count('provisioned_items'),
         ).order_by('pk')
         f['source_line_items'].queryset = hardware
         f['source_line_items'].label_from_instance = (
-            lambda li: f'{li.name or li.device_type or li.module_type} — {li.provisioned} provisioned'
+            lambda li: f'{li.name or li.device_type or li.module_type or li.rack_type} — {li.provisioned} provisioned'
         )
         if not self.is_bound and hardware.count() == 1:
             self.initial['source_line_items'] = [hardware.first().pk]
@@ -643,16 +648,22 @@ class LifecycleRecordForm(NetBoxModelForm):
         required=False,
         label='Module types',
     )
+    rack_types = DynamicModelMultipleChoiceField(
+        queryset=RackType.objects.all(),
+        required=False,
+        label='Rack types',
+    )
 
     fieldsets = (
         FieldSet('name', 'description', 'reference_url', 'notice_date', name='Lifecycle Record'),
-        FieldSet('device_types', 'module_types', name='Applies To'),
+        FieldSet('device_types', 'module_types', 'rack_types', name='Applies To'),
         FieldSet('tags', name='Tags'),
     )
 
     class Meta:
         model = LifecycleRecord
-        fields = ('name', 'description', 'device_types', 'module_types', 'reference_url', 'notice_date', 'tags')
+        fields = ('name', 'description', 'device_types', 'module_types', 'rack_types', 'reference_url',
+                  'notice_date', 'tags')
         labels = {
             'reference_url': 'Reference URL',
             'notice_date': 'Notice date',
@@ -671,6 +682,7 @@ class LifecycleRecordForm(NetBoxModelForm):
         for error in LifecycleRecord.type_conflicts(
             device_types=list(cd.get('device_types') or []),
             module_types=list(cd.get('module_types') or []),
+            rack_types=list(cd.get('rack_types') or []),
             exclude_pk=self.instance.pk,
         ):
             self.add_error(None, error)
@@ -681,7 +693,7 @@ class LifecycleRecordFilterForm(NetBoxModelFilterSetForm):
     model = LifecycleRecord
     fieldsets = (
         FieldSet('q', 'filter_id', 'tag'),
-        FieldSet('manufacturer_id', 'device_type_id', 'module_type_id', name='Applies To'),
+        FieldSet('manufacturer_id', 'device_type_id', 'module_type_id', 'rack_type_id', name='Applies To'),
     )
     manufacturer_id = DynamicModelMultipleChoiceField(
         queryset=Manufacturer.objects.all(),
@@ -697,6 +709,11 @@ class LifecycleRecordFilterForm(NetBoxModelFilterSetForm):
         queryset=ModuleType.objects.all(),
         required=False,
         label='Module type',
+    )
+    rack_type_id = DynamicModelMultipleChoiceField(
+        queryset=RackType.objects.all(),
+        required=False,
+        label='Rack type',
     )
 
 

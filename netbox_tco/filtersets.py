@@ -1,6 +1,6 @@
 import django_filters
 from django.db.models import Q
-from dcim.models import DeviceType, Manufacturer, ModuleType
+from dcim.models import DeviceType, Manufacturer, ModuleType, RackType
 from netbox.filtersets import NetBoxModelFilterSet
 from utilities.filtersets import register_filterset
 
@@ -115,6 +115,7 @@ class SupportContractFilterSet(NetBoxModelFilterSet):
 class AssignedObjectFilterMixin(django_filters.FilterSet):
     device_id = django_filters.NumberFilter(method='filter_assigned', label='Device (ID)')
     module_id = django_filters.NumberFilter(method='filter_assigned', label='Module (ID)')
+    rack_id = django_filters.NumberFilter(method='filter_assigned', label='Rack (ID)')
 
     def filter_assigned(self, queryset, name, value):
         model_name = name.removesuffix('_id')
@@ -221,7 +222,7 @@ class LifecycleRecordFilterSet(NetBoxModelFilterSet):
     manufacturer_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Manufacturer.objects.all(),
         method='filter_manufacturer',
-        label='Vendor (from device/module types)',
+        label='Vendor (from device/module/rack types)',
     )
     device_type_id = django_filters.ModelMultipleChoiceFilter(
         field_name='device_types',
@@ -233,6 +234,11 @@ class LifecycleRecordFilterSet(NetBoxModelFilterSet):
         queryset=ModuleType.objects.all(),
         label='Module type',
     )
+    rack_type_id = django_filters.ModelMultipleChoiceFilter(
+        field_name='rack_types',
+        queryset=RackType.objects.all(),
+        label='Rack type',
+    )
 
     class Meta:
         model = LifecycleRecord
@@ -242,7 +248,8 @@ class LifecycleRecordFilterSet(NetBoxModelFilterSet):
         if not value:
             return queryset
         return queryset.filter(
-            Q(device_types__manufacturer__in=value) | Q(module_types__manufacturer__in=value)
+            Q(device_types__manufacturer__in=value) | Q(module_types__manufacturer__in=value) |
+            Q(rack_types__manufacturer__in=value)
         ).distinct()
 
     def search(self, queryset, name, value):

@@ -91,7 +91,9 @@ class MilestoneTypeViewSet(NetBoxModelViewSet):
 
 
 class LifecycleRecordViewSet(NetBoxModelViewSet):
-    queryset = LifecycleRecord.objects.prefetch_related('device_types', 'module_types', 'milestones', 'tags')
+    queryset = LifecycleRecord.objects.prefetch_related(
+        'device_types', 'module_types', 'rack_types', 'milestones', 'tags',
+    )
     serializer_class = LifecycleRecordSerializer
     filterset_class = LifecycleRecordFilterSet
 

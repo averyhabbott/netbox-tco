@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from dcim.models import Device, Module
+from dcim.models import Device, Module, Rack
 from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
@@ -22,7 +22,7 @@ from netbox.views.generic import (
 from utilities.views import ViewTab, register_model_view
 
 from .choices import BillingTermChoices, ContractStatusChoices, CoverageStatusChoices, LineItemTypeChoices
-from .provisioning import coverable_limit_choices_to, coverable_model_names
+from .provisioning import coverable_limit_choices_to, coverable_model_names, entry_for_model_name
 
 from .filtersets import (
     CoverageLineFilterSet, LicenseFilterSet, LicenseLineFilterSet, LicenseTypeFilterSet, LifecycleRecordFilterSet,
@@ -973,7 +973,7 @@ class AddToContractView(PermissionRequiredMixin, View):
         if len(candidates) > remaining:
             form.add_error(
                 'seed',
-                f'Found {len(candidates)} devices/modules to add, but this line item only has '
+                f'Found {len(candidates)} objects to add, but this line item only has '
                 f'{remaining} unit(s) left. Increase its quantity or pick "Blank pending lines".'
             )
             return self._render(request, line_item, form, remaining)
@@ -1022,7 +1022,7 @@ class AddToLicenseView(AddToContractView):
 
 
 # ---------------------------------------------------------------------------
-# "Attach TCO Item" (from the core Device / Module lists)
+# "Attach TCO Item" (from the core Device / Module / Rack lists)
 # ---------------------------------------------------------------------------
 
 ATTACH_KINDS = {
@@ -1036,7 +1036,7 @@ NEW_TARGET = 'new'
 
 class AttachTCOItemView(LoginRequiredMixin, View):
     """
-    Attach devices/modules selected on a core list page to one exact TCO item: a hardware line
+    Attach devices/modules/racks selected on a core list page to one exact TCO item: a hardware line
     item (source purchase), a support/license line item (on a chosen contract/License), or —
     with no QPI — straight to an existing contract's/License's pending lines.
     """
@@ -1055,7 +1055,7 @@ class AttachTCOItemView(LoginRequiredMixin, View):
 
     @staticmethod
     def _type_fk(model):
-        return 'device_type' if model is Device else 'module_type'
+        return entry_for_model_name(model._meta.model_name)['line_item_fk']
 
     def _options(self, model, objects):
         """Every attachable item, for the page's QPI → Type → Item dropdowns."""
@@ -1063,10 +1063,15 @@ class AttachTCOItemView(LoginRequiredMixin, View):
         items = []
         qpi_ids = set()
 
-        # Hardware: only line items for the selected objects' device/module type(s)
+        # Hardware: only line items for the selected objects' type(s). A rack with no rack type
+        # could match any rack line item, so selecting one offers them all.
         selected_types = {getattr(o, f'{type_fk}_id') for o in objects}
+        if None in selected_types:
+            type_filter = {f'{type_fk}__isnull': False}
+        else:
+            type_filter = {f'{type_fk}__in': selected_types}
         hardware = LineItem.objects.filter(
-            line_type=LineItemTypeChoices.TYPE_HARDWARE, **{f'{type_fk}__in': selected_types},
+            line_type=LineItemTypeChoices.TYPE_HARDWARE, **type_filter,
         ).select_related('qpi', type_fk).annotate(used=Count('provisioned_items'))
         for li in hardware:
             if li.used < li.quantity:
@@ -1176,7 +1181,10 @@ class AttachTCOItemView(LoginRequiredMixin, View):
     def _attach_hardware(self, request, model, objects, line_item):
         self._require(request, f'dcim.change_{model._meta.model_name}')
         type_fk = self._type_fk(model)
-        wrong_type = [o for o in objects if getattr(o, f'{type_fk}_id') != getattr(line_item, f'{type_fk}_id')]
+        # No type at all (racks only) is allowed, with a warning; a different type is not
+        untyped = [o for o in objects if getattr(o, f'{type_fk}_id') is None]
+        wrong_type = [o for o in objects if o not in untyped
+                      and getattr(o, f'{type_fk}_id') != getattr(line_item, f'{type_fk}_id')]
         if wrong_type:
             raise _AttachError(
                 f'These are not a {getattr(line_item, type_fk) or "matching type"}: '
@@ -1210,6 +1218,13 @@ class AttachTCOItemView(LoginRequiredMixin, View):
         messages.success(request, f'Attached {len(new)} {model._meta.verbose_name_plural} to {line_item}.')
         if len(new) < len(objects):
             messages.info(request, f'{len(objects) - len(new)} were already attached to it.')
+        untyped_new = [o for o in new if o in untyped]
+        if untyped_new:
+            messages.warning(
+                request,
+                f'No {type_fk.replace("_", " ")} set on: ' + ', '.join(str(o) for o in untyped_new[:10])
+                + f'. Attached anyway — check they really are a {getattr(line_item, type_fk)}.'
+            )
         return line_item.get_absolute_url()
 
     def _attach_to_line_item(self, request, model, objects, line_item):
@@ -1314,7 +1329,7 @@ class _AttachError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Support / Licenses tabs on Device and Module
+# Support / Licenses tabs on Device, Module, and Rack
 # ---------------------------------------------------------------------------
 
 class _LinesTabView(ObjectChildrenView):
@@ -1365,6 +1380,12 @@ class ModuleSupportView(_SupportTabView):
     tab = ViewTab(**SUPPORT_TAB)
 
 
+@register_model_view(Rack, 'tco_support', path='support')
+class RackSupportView(_SupportTabView):
+    queryset = Rack.objects.all()
+    tab = ViewTab(**SUPPORT_TAB)
+
+
 @register_model_view(Device, 'tco_licenses', path='licenses')
 class DeviceLicensesView(_LicensesTabView):
     queryset = Device.objects.all()
@@ -1377,6 +1398,12 @@ class ModuleLicensesView(_LicensesTabView):
     tab = ViewTab(**LICENSES_TAB)
 
 
+@register_model_view(Rack, 'tco_licenses', path='licenses')
+class RackLicensesView(_LicensesTabView):
+    queryset = Rack.objects.all()
+    tab = ViewTab(**LICENSES_TAB)
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle Records
 # ---------------------------------------------------------------------------
@@ -1386,6 +1413,7 @@ class LifecycleRecordListView(ObjectListView):
     queryset = LifecycleRecord.objects.prefetch_related('milestones__milestone_type').annotate(
         device_type_count=Count('device_types', distinct=True),
         module_type_count=Count('module_types', distinct=True),
+        rack_type_count=Count('rack_types', distinct=True),
     )
     table = LifecycleRecordTable
     filterset = LifecycleRecordFilterSet
@@ -1394,7 +1422,9 @@ class LifecycleRecordListView(ObjectListView):
 
 @register_model_view(LifecycleRecord)
 class LifecycleRecordView(ObjectView):
-    queryset = LifecycleRecord.objects.prefetch_related('device_types', 'module_types', 'milestones__milestone_type')
+    queryset = LifecycleRecord.objects.prefetch_related(
+        'device_types', 'module_types', 'rack_types', 'milestones__milestone_type',
+    )
 
     def get_extra_context(self, request, instance):
         from .template_content import milestone_rows
@@ -1406,6 +1436,9 @@ class LifecycleRecordView(ObjectView):
             ),
             'module_types': instance.module_types.select_related('manufacturer').annotate(
                 tco_instance_count=Count('instances', distinct=True),
+            ),
+            'rack_types': instance.rack_types.select_related('manufacturer').annotate(
+                tco_instance_count=Count('racks', distinct=True),
             ),
             'attachments': Attachment.objects.filter(
                 content_type=ct, object_id=instance.pk

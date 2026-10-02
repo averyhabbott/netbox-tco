@@ -147,8 +147,9 @@
                   'New lines use this start date (pending lines keep their own). ' +
                   'Anything already on the ' + NOUN[t] + ' for overlapping dates is skipped.';
       } else if (it && t === 'hardware') {
-        explain = 'Sets the purchase (price and QPI) for each selected object. The device/module type must match, ' +
-                  'and objects already attached to a different hardware line item must be removed there first.';
+        explain = 'Sets the purchase (price and QPI) for each selected object. The device/module/rack type must match ' +
+                  '(a rack with no rack type is allowed, with a warning), and objects already attached to a ' +
+                  'different hardware line item must be removed there first.';
       } else if (it) {
         explain = 'Fills this ' + NOUN[t] + '\'s pending lines.';
       }

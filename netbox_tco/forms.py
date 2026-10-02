@@ -2,6 +2,7 @@ from django import forms
 from django.db.models import Count, Q
 from dcim.models import Device, DeviceType, Manufacturer, Module, ModuleType, RackType
 from netbox.forms import NetBoxModelBulkEditForm, NetBoxModelForm, NetBoxModelFilterSetForm
+from utilities.forms import add_blank_choice
 from utilities.forms.fields import DynamicModelChoiceField, DynamicModelMultipleChoiceField, SlugField
 from utilities.forms.rendering import FieldSet
 
@@ -185,100 +186,22 @@ class LineItemFilterForm(NetBoxModelFilterSetForm):
 
 
 # ---------------------------------------------------------------------------
-# Support Contracts
+# Support Contracts & Licenses — shared pieces
 # ---------------------------------------------------------------------------
 
-class SupportContractForm(NetBoxModelForm):
-    vendor = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
-    predecessors = DynamicModelMultipleChoiceField(
-        queryset=SupportContract.objects.all(),
-        required=False,
-        label='Replaces',
-        help_text='Only when the vendor issued a new contract number or contracts were merged.',
-    )
+REPLACES_HELP = 'Only when the vendor issued a new number or records were merged.'
 
-    fieldsets = (
-        FieldSet('name', 'vendor', 'contract_id', 'status', 'description', name='Support Contract'),
-        FieldSet('renewal_date', 'predecessors', name='Renewal'),
-        FieldSet('tags', name='Tags'),
-    )
 
-    class Meta:
-        model = SupportContract
-        fields = ('name', 'vendor', 'contract_id', 'status', 'description',
-                  'renewal_date', 'predecessors', 'tags')
-        widgets = {
-            'renewal_date': forms.DateInput(attrs={'type': 'date'}),
-        }
-
+class ContractFormMixin:
     def clean_predecessors(self):
         predecessors = self.cleaned_data['predecessors']
         if self.instance.pk and self.instance in predecessors:
-            raise forms.ValidationError('A contract cannot replace itself.')
+            raise forms.ValidationError('A record cannot replace itself.')
         return predecessors
 
 
-class SupportContractFilterForm(NetBoxModelFilterSetForm):
-    model = SupportContract
-    status = forms.MultipleChoiceField(choices=ContractStatusChoices, required=False)
-    vendor_id = DynamicModelMultipleChoiceField(
-        queryset=Manufacturer.objects.all(),
-        required=False,
-        label='Vendor',
-    )
-
-
-class CoverageLineForm(NetBoxModelForm):
-    support_contract = DynamicModelChoiceField(queryset=SupportContract.objects.all())
-    device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        selector=True,
-    )
-    module = DynamicModelChoiceField(
-        queryset=Module.objects.all(),
-        required=False,
-        selector=True,
-    )
-    funding_line_item = DynamicModelChoiceField(
-        queryset=LineItem.objects.filter(line_type=LineItemTypeChoices.TYPE_SUPPORT),
-        required=False,
-        query_params={'line_type': LineItemTypeChoices.TYPE_SUPPORT},
-        help_text='The support line item that paid for this coverage.',
-    )
-    service_level = DynamicModelChoiceField(
-        queryset=ServiceLevel.objects.all(),
-        required=False,
-        help_text='Leave blank to use the funding line item\'s service level.',
-    )
-    start_date = forms.DateField(
-        required=False,
-        widget=forms.DateInput(attrs={'type': 'date'}),
-        help_text='Leave blank to use the funding line item\'s start date.',
-    )
-    end_date = forms.DateField(
-        required=False,
-        widget=forms.DateInput(attrs={'type': 'date'}),
-        help_text='Leave blank to use the funding line item\'s end date.',
-    )
-    price = forms.DecimalField(
-        required=False,
-        max_digits=12,
-        decimal_places=2,
-        help_text='Leave blank to use the funding line item\'s unit price.',
-    )
-
-    fieldsets = (
-        FieldSet('support_contract', 'funding_line_item', name='Contract'),
-        FieldSet('device', 'module', name='Covered Object (leave both blank if pending)'),
-        FieldSet('service_level', 'start_date', 'end_date', 'price', name='Coverage'),
-        FieldSet('tags', name='Tags'),
-    )
-
-    class Meta:
-        model = CoverageLine
-        fields = ('support_contract', 'funding_line_item', 'service_level',
-                  'start_date', 'end_date', 'price', 'tags')
+class AssignedObjectFormMixin:
+    """Device / module pickers mapped onto a line's generic assigned_object."""
 
     def __init__(self, *args, **kwargs):
         instance = kwargs.get('instance')
@@ -301,6 +224,138 @@ class CoverageLineForm(NetBoxModelForm):
         return self.cleaned_data
 
 
+class LineQuantityFormMixin:
+    """Add page only: a quantity that creates that many identical (pending) lines in one go."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            del self.fields['quantity']
+
+    def clean(self):
+        super().clean()
+        quantity = self.cleaned_data.get('quantity') or 1
+        if quantity > 1:
+            if self.instance.assigned_object is not None:
+                raise forms.ValidationError({
+                    'quantity': 'Leave the device and module blank to add more than one line.'
+                })
+            li = self.cleaned_data.get('funding_line_item')
+            if li is not None:
+                used = type(self.instance).objects.filter(funding_line_item=li).count()
+                if used + quantity > li.quantity:
+                    raise forms.ValidationError({
+                        'quantity': f'{li} (qty {li.quantity}) already funds {used} line(s); '
+                                    f'only {max(li.quantity - used, 0)} more can be added.'
+                    })
+        return self.cleaned_data
+
+    def save(self, *args, **kwargs):
+        obj = super().save(*args, **kwargs)
+        model = type(obj)
+        for _ in range((self.cleaned_data.get('quantity') or 1) - 1):
+            extra = model.objects.get(pk=obj.pk)
+            extra.pk = None
+            extra._state.adding = True
+            extra.save()
+            extra.tags.set(obj.tags.all())
+        return obj
+
+
+def _quantity_field():
+    return forms.IntegerField(
+        min_value=1, max_value=1000, initial=1,
+        help_text='Number of identical lines to add. More than 1 creates pending lines (no device or module).',
+    )
+
+
+def _device_field():
+    return DynamicModelChoiceField(queryset=Device.objects.all(), required=False, selector=True)
+
+
+def _module_field():
+    return DynamicModelChoiceField(queryset=Module.objects.all(), required=False, selector=True)
+
+
+def _date_field(help_text=''):
+    return forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}), help_text=help_text)
+
+
+def _price_field(help_text=''):
+    return forms.DecimalField(required=False, max_digits=12, decimal_places=2, help_text=help_text)
+
+
+# ---------------------------------------------------------------------------
+# Support Contracts
+# ---------------------------------------------------------------------------
+
+class SupportContractForm(ContractFormMixin, NetBoxModelForm):
+    vendor = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
+    predecessors = DynamicModelMultipleChoiceField(
+        queryset=SupportContract.objects.all(),
+        required=False,
+        label='Replaces',
+        help_text=REPLACES_HELP,
+    )
+
+    fieldsets = (
+        FieldSet('name', 'vendor', 'contract_id', 'status', 'description', name='Support Contract'),
+        FieldSet('renewal_date', 'predecessors', name='Renewal'),
+        FieldSet('tags', name='Tags'),
+    )
+
+    class Meta:
+        model = SupportContract
+        fields = ('name', 'vendor', 'contract_id', 'status', 'description',
+                  'renewal_date', 'predecessors', 'tags')
+        widgets = {
+            'renewal_date': forms.DateInput(attrs={'type': 'date'}),
+        }
+
+
+class SupportContractFilterForm(NetBoxModelFilterSetForm):
+    model = SupportContract
+    status = forms.MultipleChoiceField(choices=ContractStatusChoices, required=False)
+    vendor_id = DynamicModelMultipleChoiceField(
+        queryset=Manufacturer.objects.all(),
+        required=False,
+        label='Vendor',
+    )
+
+
+class CoverageLineForm(LineQuantityFormMixin, AssignedObjectFormMixin, NetBoxModelForm):
+    support_contract = DynamicModelChoiceField(queryset=SupportContract.objects.all())
+    quantity = _quantity_field()
+    device = _device_field()
+    module = _module_field()
+    funding_line_item = DynamicModelChoiceField(
+        queryset=LineItem.objects.filter(line_type=LineItemTypeChoices.TYPE_SUPPORT),
+        required=False,
+        query_params={'line_type': LineItemTypeChoices.TYPE_SUPPORT},
+        help_text='The support line item that paid for this coverage.',
+    )
+    service_level = DynamicModelChoiceField(
+        queryset=ServiceLevel.objects.all(),
+        required=False,
+        help_text='Leave blank to use the funding line item\'s service level.',
+    )
+    start_date = _date_field('Leave blank to use the funding line item\'s start date.')
+    end_date = _date_field('Leave blank to use the funding line item\'s end date.')
+    price = _price_field('Leave blank to use the funding line item\'s unit price.')
+
+    fieldsets = (
+        FieldSet('support_contract', 'funding_line_item', name='Contract'),
+        FieldSet('quantity', 'device', 'module', name='Covered Object (leave both blank if pending)'),
+        FieldSet('service_level', 'start_date', 'end_date', 'price', name='Coverage'),
+        FieldSet('tags', name='Tags'),
+    )
+
+    class Meta:
+        model = CoverageLine
+        fields = ('support_contract', 'funding_line_item', 'service_level',
+                  'start_date', 'end_date', 'price', 'tags')
+
+
 class CoverageLineBulkEditForm(NetBoxModelBulkEditForm):
     model = CoverageLine
     funding_line_item = DynamicModelChoiceField(
@@ -309,9 +364,9 @@ class CoverageLineBulkEditForm(NetBoxModelBulkEditForm):
         query_params={'line_type': LineItemTypeChoices.TYPE_SUPPORT},
     )
     service_level = DynamicModelChoiceField(queryset=ServiceLevel.objects.all(), required=False)
-    start_date = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}))
-    end_date = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}))
-    price = forms.DecimalField(required=False, max_digits=12, decimal_places=2)
+    start_date = _date_field()
+    end_date = _date_field()
+    price = _price_field()
 
     fieldsets = (
         FieldSet('funding_line_item', 'service_level', 'start_date', 'end_date', 'price'),
@@ -334,75 +389,203 @@ class CoverageLineFilterForm(NetBoxModelFilterSetForm):
     )
 
 
-class AddToSupportContractForm(forms.Form):
-    """Creates coverage lines on a new or existing contract from a support line item."""
+# ---------------------------------------------------------------------------
+# Licenses
+# ---------------------------------------------------------------------------
+
+class LicenseForm(ContractFormMixin, NetBoxModelForm):
+    vendor = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
+    predecessors = DynamicModelMultipleChoiceField(
+        queryset=License.objects.all(),
+        required=False,
+        label='Replaces',
+        help_text=REPLACES_HELP,
+    )
+
+    fieldsets = (
+        FieldSet('name', 'vendor', 'license_number', 'status', 'description', name='License'),
+        FieldSet('renewal_date', 'predecessors', name='Renewal'),
+        FieldSet('tags', name='Tags'),
+    )
+
+    class Meta:
+        model = License
+        fields = ('name', 'vendor', 'license_number', 'status', 'description',
+                  'renewal_date', 'predecessors', 'tags')
+        widgets = {
+            'renewal_date': forms.DateInput(attrs={'type': 'date'}),
+        }
+
+
+class LicenseFilterForm(NetBoxModelFilterSetForm):
+    model = License
+    status = forms.MultipleChoiceField(choices=ContractStatusChoices, required=False)
+    vendor_id = DynamicModelMultipleChoiceField(
+        queryset=Manufacturer.objects.all(),
+        required=False,
+        label='Vendor',
+    )
+
+
+class LicenseLineForm(LineQuantityFormMixin, AssignedObjectFormMixin, NetBoxModelForm):
+    license = DynamicModelChoiceField(queryset=License.objects.all())
+    quantity = _quantity_field()
+    device = _device_field()
+    module = _module_field()
+    funding_line_item = DynamicModelChoiceField(
+        queryset=LineItem.objects.filter(line_type=LineItemTypeChoices.TYPE_LICENSE),
+        required=False,
+        query_params={'line_type': LineItemTypeChoices.TYPE_LICENSE},
+        help_text='The license line item that paid for this license.',
+    )
+    license_type = DynamicModelChoiceField(
+        queryset=LicenseType.objects.all(),
+        required=False,
+        help_text='Leave blank to use the funding line item\'s license type.',
+    )
+    start_date = _date_field('Leave blank to use the funding line item\'s start date.')
+    end_date = _date_field('Subscriptions only. Leave blank to use the funding line item\'s end date.')
+    price = _price_field('Leave blank to use the funding line item\'s unit price.')
+
+    fieldsets = (
+        FieldSet('license', 'funding_line_item', name='License'),
+        FieldSet('quantity', 'device', 'module', name='Licensed Object (leave both blank if pending)'),
+        FieldSet('license_type', 'billing_term', 'start_date', 'end_date', 'price', name='Term'),
+        FieldSet('license_key', name='Activation'),
+        FieldSet('tags', name='Tags'),
+    )
+
+    class Meta:
+        model = LicenseLine
+        fields = ('license', 'funding_line_item', 'license_type', 'billing_term',
+                  'start_date', 'end_date', 'price', 'license_key', 'tags')
+
+
+class LicenseLineBulkEditForm(NetBoxModelBulkEditForm):
+    model = LicenseLine
+    funding_line_item = DynamicModelChoiceField(
+        queryset=LineItem.objects.filter(line_type=LineItemTypeChoices.TYPE_LICENSE),
+        required=False,
+        query_params={'line_type': LineItemTypeChoices.TYPE_LICENSE},
+    )
+    license_type = DynamicModelChoiceField(queryset=LicenseType.objects.all(), required=False)
+    billing_term = forms.ChoiceField(choices=add_blank_choice(BillingTermChoices), required=False)
+    start_date = _date_field()
+    end_date = _date_field()
+    price = _price_field()
+
+    fieldsets = (
+        FieldSet('funding_line_item', 'license_type', 'billing_term', 'start_date', 'end_date', 'price'),
+    )
+    nullable_fields = ('funding_line_item', 'end_date')
+
+
+class LicenseLineFilterForm(NetBoxModelFilterSetForm):
+    model = LicenseLine
+    license_id = DynamicModelMultipleChoiceField(
+        queryset=License.objects.all(),
+        required=False,
+        label='License',
+    )
+    status = forms.MultipleChoiceField(choices=CoverageStatusChoices, required=False)
+    billing_term = forms.MultipleChoiceField(choices=BillingTermChoices, required=False)
+    license_type_id = DynamicModelMultipleChoiceField(
+        queryset=LicenseType.objects.all(),
+        required=False,
+        label='License type',
+    )
+
+
+# ---------------------------------------------------------------------------
+# "Add to Support Contract" / "Add to License" (from a line item)
+# ---------------------------------------------------------------------------
+
+class AddToContractForm(forms.Form):
+    """Creates lines on a new or existing contract/License, funded by one line item."""
     MODE_NEW = 'new'
     MODE_EXISTING = 'existing'
     SEED_PENDING = 'pending'
     SEED_QPI = 'qpi'
     SEED_CONTRACT = 'contract'
 
-    mode = forms.ChoiceField(
-        choices=((MODE_NEW, 'New contract'), (MODE_EXISTING, 'Existing contract')),
-        widget=forms.RadioSelect,
-        label='Contract',
-    )
+    contract_model = SupportContract
+    noun = 'contract'
+
+    mode = forms.ChoiceField(widget=forms.RadioSelect)
     existing_contract = DynamicModelChoiceField(
         queryset=SupportContract.objects.all(),
         required=False,
-        label='Existing contract',
-        help_text='Co-term additions, and renewals that keep the same contract number.',
+        help_text='Co-term additions, and renewals that keep the same number.',
     )
     name = forms.CharField(max_length=200, required=False)
-    contract_id = forms.CharField(max_length=200, required=False, label='Contract ID')
+    reference = forms.CharField(max_length=200, required=False)
     vendor = DynamicModelChoiceField(queryset=Manufacturer.objects.all(), required=False)
     predecessors = DynamicModelMultipleChoiceField(
         queryset=SupportContract.objects.all(),
         required=False,
         label='Replaces',
-        help_text='Only when the vendor issued a new contract number or contracts were merged.',
+        help_text=REPLACES_HELP,
     )
-    seed = forms.ChoiceField(
-        choices=(
-            (SEED_PENDING, 'Blank pending lines (assign devices later)'),
-            (SEED_QPI, 'Devices and modules provisioned on this QPI'),
-            (SEED_CONTRACT, 'Devices and modules currently on a contract (renewal)'),
-        ),
-        widget=forms.RadioSelect,
-        label='Cover',
+    seed = forms.ChoiceField(widget=forms.RadioSelect, label='Cover')
+    source_line_items = forms.ModelMultipleChoiceField(
+        queryset=LineItem.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label='From hardware line items',
     )
     source_contract = DynamicModelChoiceField(
         queryset=SupportContract.objects.all(),
         required=False,
-        label='Copy from contract',
-        help_text='Leave blank to use the existing contract chosen above, or the contract this one replaces.',
     )
     start_date = forms.DateField(widget=forms.DateInput(attrs={'type': 'date'}))
     end_date = forms.DateField(widget=forms.DateInput(attrs={'type': 'date'}))
-    price = forms.DecimalField(
-        max_digits=12, decimal_places=2,
-        label='Price per line',
-    )
+    price = forms.DecimalField(max_digits=12, decimal_places=2, label='Price per line')
 
-    fieldsets = (
-        FieldSet('mode', 'existing_contract', name='Contract'),
-        FieldSet('name', 'contract_id', 'vendor', 'predecessors', name='New Contract'),
-        FieldSet('seed', 'source_contract', name='Coverage'),
-        FieldSet('start_date', 'end_date', 'price', name='Term'),
-    )
+    def __init__(self, *args, line_item, **kwargs):
+        super().__init__(*args, **kwargs)
+        noun, model = self.noun, self.contract_model
+        f = self.fields
+        f['mode'].choices = ((self.MODE_NEW, f'New {noun}'), (self.MODE_EXISTING, f'Existing {noun}'))
+        f['mode'].label = noun.capitalize()
+        f['existing_contract'].label = f'Existing {noun}'
+        f['reference'].label = model._meta.get_field(model.reference_attr).verbose_name.capitalize()
+        for name in ('existing_contract', 'predecessors', 'source_contract'):
+            f[name].queryset = model.objects.all()
+        f['seed'].choices = (
+            (self.SEED_PENDING, 'Blank pending lines (assign devices later)'),
+            (self.SEED_QPI, 'Devices and modules from hardware line items on this QPI'),
+            (self.SEED_CONTRACT, f'Devices and modules currently on a {noun} (renewal)'),
+        )
+        f['source_contract'].label = f'Copy from {noun}'
+        f['source_contract'].help_text = (
+            f'Leave blank to use the existing {noun} chosen above, or the {noun} this one replaces.'
+        )
+        hardware = LineItem.objects.filter(
+            qpi=line_item.qpi, line_type=LineItemTypeChoices.TYPE_HARDWARE,
+        ).filter(Q(device_type__isnull=False) | Q(module_type__isnull=False)).annotate(
+            provisioned=Count('provisioned_items'),
+        ).order_by('pk')
+        f['source_line_items'].queryset = hardware
+        f['source_line_items'].label_from_instance = (
+            lambda li: f'{li.name or li.device_type or li.module_type} — {li.provisioned} provisioned'
+        )
+        if not self.is_bound and hardware.count() == 1:
+            self.initial['source_line_items'] = [hardware.first().pk]
 
     def clean(self):
         cd = super().clean()
         if cd.get('mode') == self.MODE_EXISTING:
             if not cd.get('existing_contract'):
-                self.add_error('existing_contract', 'Choose a contract.')
+                self.add_error('existing_contract', f'Choose a {self.noun}.')
         elif cd.get('mode') == self.MODE_NEW:
             if not cd.get('name'):
-                self.add_error('name', 'Required for a new contract.')
+                self.add_error('name', f'Required for a new {self.noun}.')
             if not cd.get('vendor'):
-                self.add_error('vendor', 'Required for a new contract.')
+                self.add_error('vendor', f'Required for a new {self.noun}.')
+        if cd.get('seed') == self.SEED_QPI and not cd.get('source_line_items'):
+            self.add_error('source_line_items', 'Choose which hardware line items to pull devices from.')
         if cd.get('seed') == self.SEED_CONTRACT and not self.get_source_contract():
-            self.add_error('source_contract', 'Choose a contract to copy devices from.')
+            self.add_error('source_contract', f'Choose a {self.noun} to copy devices from.')
         start, end = cd.get('start_date'), cd.get('end_date')
         if start and end and end < start:
             self.add_error('end_date', 'End date must be on or after the start date.')
@@ -420,82 +603,29 @@ class AddToSupportContractForm(forms.Form):
         return None
 
 
-class AssignCoverageForm(forms.Form):
-    """Assigns selected devices/modules to a contract's pending coverage lines."""
-    support_contract = forms.ModelChoiceField(
-        queryset=SupportContract.objects.none(),
-        label='Support contract',
-        help_text='Only contracts with pending coverage lines are listed.',
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        qs = SupportContract.objects.filter(
-            coverage_lines__status=CoverageStatusChoices.STATUS_PENDING,
-        ).annotate(
-            pending=Count('coverage_lines', filter=Q(coverage_lines__status=CoverageStatusChoices.STATUS_PENDING)),
-        ).distinct().order_by('name')
-        self.fields['support_contract'].queryset = qs
-        self.fields['support_contract'].label_from_instance = (
-            lambda c: f'{c} — {c.pending} pending line{"s" if c.pending != 1 else ""}'
-        )
+class AddToSupportContractForm(AddToContractForm):
+    contract_model = SupportContract
+    noun = 'contract'
 
 
-# ---------------------------------------------------------------------------
-# Licenses
-# ---------------------------------------------------------------------------
+class AddToLicenseForm(AddToContractForm):
+    contract_model = License
+    noun = 'license'
 
-class LicenseForm(NetBoxModelForm):
-    vendor = DynamicModelChoiceField(queryset=Manufacturer.objects.all())
-    funding_line_items = DynamicModelMultipleChoiceField(
-        queryset=LineItem.objects.filter(line_type=LineItemTypeChoices.TYPE_LICENSE),
+    billing_term = forms.ChoiceField(choices=BillingTermChoices, widget=forms.RadioSelect)
+    end_date = forms.DateField(
         required=False,
-        label='Funding line items',
-    )
-    predecessors = DynamicModelMultipleChoiceField(
-        queryset=License.objects.all(),
-        required=False,
-        label='Predecessors',
+        widget=forms.DateInput(attrs={'type': 'date'}),
+        help_text='Subscriptions only.',
     )
 
-    fieldsets = (
-        FieldSet('vendor', 'status', name='General'),
-        FieldSet('funding_line_items', 'predecessors', name='Details'),
-        FieldSet('tags', name='Tags'),
-    )
-
-    class Meta:
-        model = License
-        fields = ('vendor', 'status', 'funding_line_items', 'predecessors', 'tags')
-
-
-class LicenseFilterForm(NetBoxModelFilterSetForm):
-    model = License
-    status = forms.MultipleChoiceField(choices=ContractStatusChoices, required=False)
-    vendor_id = DynamicModelMultipleChoiceField(
-        queryset=Manufacturer.objects.all(),
-        required=False,
-        label='Vendor',
-    )
-
-
-class LicenseLineForm(forms.ModelForm):
-    device = DynamicModelChoiceField(
-        queryset=Device.objects.all(),
-        required=False,
-        label='Device (leave blank if pending)',
-    )
-    license_type = DynamicModelChoiceField(queryset=LicenseType.objects.all())
-
-    class Meta:
-        model = LicenseLine
-        fields = ('device', 'license_type', 'billing_term', 'start_date', 'end_date',
-                  'renewal_date', 'price', 'license_key')
-        widgets = {
-            'start_date': forms.DateInput(attrs={'type': 'date'}),
-            'end_date': forms.DateInput(attrs={'type': 'date'}),
-            'renewal_date': forms.DateInput(attrs={'type': 'date'}),
-        }
+    def clean(self):
+        cd = super().clean()
+        if cd.get('billing_term') == BillingTermChoices.TERM_PERPETUAL:
+            cd['end_date'] = None
+        elif not cd.get('end_date') and 'end_date' not in self.errors:
+            self.add_error('end_date', 'Required for subscriptions.')
+        return cd
 
 
 # ---------------------------------------------------------------------------

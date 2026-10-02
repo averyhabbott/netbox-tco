@@ -54,6 +54,7 @@ class ContractStatusChoices(ChoiceSet):
 
 
 class CoverageStatusChoices(ChoiceSet):
+    """Status of a coverage line or license line."""
     STATUS_PENDING = 'pending'
     STATUS_ASSIGNED = 'assigned'
     STATUS_RETIRED = 'retired'
@@ -86,6 +87,6 @@ class BillingTermChoices(ChoiceSet):
     TERM_SUBSCRIPTION = 'subscription'
 
     CHOICES = [
-        (TERM_PERPETUAL, 'Perpetual'),
-        (TERM_SUBSCRIPTION, 'Subscription'),
+        (TERM_PERPETUAL, 'Perpetual', 'blue'),
+        (TERM_SUBSCRIPTION, 'Subscription', 'purple'),
     ]

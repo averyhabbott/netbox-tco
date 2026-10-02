@@ -67,8 +67,11 @@ class SupportContractIndex(SearchIndex):
 class LicenseIndex(SearchIndex):
     model = License
     fields = (
-        ('pk', 200),
+        ('name', 100),
+        ('license_number', 100),
+        ('description', 500),
     )
+    display_attrs = ('vendor', 'status')
 
 
 @register_search

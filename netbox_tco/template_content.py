@@ -16,7 +16,7 @@ class DeviceTCOPanel(PluginTemplateExtension):
         from django.contrib.contenttypes.models import ContentType
         from django.db.models import Q
         from netbox.plugins import get_plugin_config
-        from .choices import ContractStatusChoices
+        from .choices import BillingTermChoices, ContractStatusChoices
         from .models import CoverageLine, LicenseLine, ProvisionedItem
 
         include_modules = get_plugin_config('netbox_tco', 'hardware_price_sum')
@@ -44,21 +44,23 @@ class DeviceTCOPanel(PluginTemplateExtension):
             ).select_related('line_item'):
                 hardware_cost += mpi.line_item.unit_price
 
-        # Coverage on the device and (optionally) its installed modules; cancelled contracts excluded
-        covered = Q(assigned_object_type=device_ct, assigned_object_id=device.pk)
+        # Coverage and license lines on the device and (optionally) its installed modules;
+        # cancelled contracts/licenses excluded
+        assigned = Q(assigned_object_type=device_ct, assigned_object_id=device.pk)
         if module_ids:
-            covered |= Q(assigned_object_type=module_ct, assigned_object_id__in=module_ids)
-        all_coverage = CoverageLine.objects.filter(covered).exclude(
+            assigned |= Q(assigned_object_type=module_ct, assigned_object_id__in=module_ids)
+        all_coverage = CoverageLine.objects.filter(assigned).exclude(
             support_contract__status=ContractStatusChoices.STATUS_CANCELLED,
         )
-        all_licenses = LicenseLine.objects.filter(device=device).exclude(
+        all_licenses = LicenseLine.objects.filter(assigned).exclude(
             license__status=ContractStatusChoices.STATUS_CANCELLED,
         )
 
+        # Perpetual licenses count toward lifetime cost only, never annual recurring
         today = date.today()
         current_coverage = all_coverage.filter(start_date__lte=today, end_date__gte=today)
         current_licenses = all_licenses.filter(
-            billing_term='subscription', start_date__lte=today, end_date__gte=today,
+            billing_term=BillingTermChoices.TERM_SUBSCRIPTION, start_date__lte=today, end_date__gte=today,
         )
 
         def annualize(lines):
@@ -99,17 +101,19 @@ class DeviceTCOPanel(PluginTemplateExtension):
         })
 
 
-class CoverageListButton(PluginTemplateExtension):
-    """'Add to Support Contract' button on the core Device and Module list pages."""
+class AttachListButton(PluginTemplateExtension):
+    """'Attach TCO Item' button on the core Device and Module list pages."""
     models = ['dcim.device', 'dcim.module']
 
     def list_buttons(self):
-        request = self.context['request']
-        if not request.user.has_perm('netbox_tco.change_coverageline'):
-            return ''
+        user = self.context['request'].user
         model_name = self.context['object']._meta.model_name
-        return self.render('netbox_tco/inc/coverage_list_button.html', extra_context={
-            'assign_url': reverse('plugins:netbox_tco:coverageline_assign', kwargs={'model_name': model_name}),
+        if not any(user.has_perm(p) for p in (
+            f'dcim.change_{model_name}', 'netbox_tco.change_coverageline', 'netbox_tco.change_licenseline',
+        )):
+            return ''
+        return self.render('netbox_tco/inc/attach_list_button.html', extra_context={
+            'attach_url': reverse('plugins:netbox_tco:attach_tco_item', kwargs={'model_name': model_name}),
         })
 
 
@@ -137,4 +141,4 @@ class DeviceEOLPanel(PluginTemplateExtension):
         })
 
 
-template_extensions = [DeviceTCOPanel, DeviceEOLPanel, CoverageListButton]
+template_extensions = [DeviceTCOPanel, DeviceEOLPanel, AttachListButton]

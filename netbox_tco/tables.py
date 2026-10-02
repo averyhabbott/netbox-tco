@@ -114,27 +114,41 @@ class CoverageLineTable(NetBoxTable):
 
 
 class LicenseTable(NetBoxTable):
+    name = tables.Column(linkify=True)
     vendor = tables.Column(linkify=True)
     status = columns.ChoiceFieldColumn()
     renewal_status = columns.ChoiceFieldColumn()
+    line_count = tables.Column(verbose_name='Lines')
+    latest_end = columns.DateColumn(verbose_name='End date')
     tags = columns.TagColumn(url_name='plugins:netbox_tco:license_list')
 
     class Meta(NetBoxTable.Meta):
         model = License
-        fields = ('pk', 'vendor', 'status', 'renewal_status', 'tags')
-        default_columns = ('vendor', 'status', 'renewal_status')
+        fields = ('pk', 'name', 'vendor', 'license_number', 'status', 'renewal_status',
+                  'line_count', 'latest_end', 'renewal_date', 'description', 'tags')
+        default_columns = ('name', 'vendor', 'license_number', 'status', 'line_count', 'latest_end',
+                           'renewal_status')
 
 
-class LicenseLineTable(tables.Table):
-    device = tables.Column(linkify=True)
+class LicenseLineTable(NetBoxTable):
+    id = tables.Column(linkify=True, verbose_name='ID')
+    license = tables.Column(linkify=True)
+    assigned_object = tables.Column(linkify=True, orderable=False, verbose_name='Licensed object')
+    assigned_object_type = columns.ContentTypeColumn(verbose_name='Type')
+    status = columns.ChoiceFieldColumn()
     license_type = tables.Column(linkify=True)
-    billing_term = columns.ChoiceFieldColumn()
+    billing_term = columns.ChoiceFieldColumn(verbose_name='Term')
+    funding_line_item = tables.Column(linkify=True, verbose_name='Funded by')
+    price = columns.TemplateColumn(template_code=USD_TEMPLATE)
+    tags = columns.TagColumn(url_name='plugins:netbox_tco:licenseline_list')
 
-    class Meta:
+    class Meta(NetBoxTable.Meta):
         model = LicenseLine
-        fields = ('device', 'license_type', 'billing_term', 'start_date', 'end_date',
-                  'renewal_date', 'price')
-        empty_text = 'No license lines.'
+        fields = ('pk', 'id', 'license', 'assigned_object', 'assigned_object_type', 'status',
+                  'license_type', 'billing_term', 'funding_line_item', 'start_date', 'end_date',
+                  'price', 'tags')
+        default_columns = ('pk', 'id', 'license', 'assigned_object', 'status', 'license_type',
+                           'billing_term', 'start_date', 'end_date', 'price')
 
 
 class LifecycleRecordTable(NetBoxTable):

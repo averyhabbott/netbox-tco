@@ -12,6 +12,7 @@ router.register('line-items', views.LineItemViewSet)
 router.register('support-contracts', views.SupportContractViewSet)
 router.register('coverage-lines', views.CoverageLineViewSet)
 router.register('licenses', views.LicenseViewSet)
+router.register('license-lines', views.LicenseLineViewSet)
 router.register('lifecycle-records', views.LifecycleRecordViewSet)
 
 urlpatterns = router.urls

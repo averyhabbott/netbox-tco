@@ -4,7 +4,7 @@ from netbox.api.gfk_fields import GFKSerializerField
 from netbox.api.serializers import NetBoxModelSerializer
 from rest_framework import serializers
 
-from ..choices import ContractStatusChoices, CoverageStatusChoices, RenewalStatusChoices
+from ..choices import BillingTermChoices, ContractStatusChoices, CoverageStatusChoices, RenewalStatusChoices
 from ..provisioning import coverable_limit_choices_to
 
 from ..models import (
@@ -111,19 +111,37 @@ class CoverageLineSerializer(NetBoxModelSerializer):
 
 
 class LicenseSerializer(NetBoxModelSerializer):
+    status = ChoiceField(choices=ContractStatusChoices, required=False)
+    renewal_status = ChoiceField(choices=RenewalStatusChoices, read_only=True)
+    start_date = serializers.DateField(read_only=True)
+    end_date = serializers.DateField(read_only=True)
+    total_price = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
     class Meta:
         model = License
-        fields = ('id', 'url', 'display', 'vendor', 'status', 'renewal_status',
-                  'predecessors', 'funding_line_items',
-                  'tags', 'custom_fields', 'created', 'last_updated')
-        brief_fields = ('id', 'url', 'display', 'vendor', 'status')
+        fields = ('id', 'url', 'display', 'name', 'vendor', 'license_number', 'status',
+                  'renewal_status', 'renewal_date', 'start_date', 'end_date', 'total_price',
+                  'predecessors', 'description', 'tags', 'custom_fields', 'created', 'last_updated')
+        brief_fields = ('id', 'url', 'display', 'name', 'license_number', 'status')
 
 
-class LicenseLineSerializer(serializers.ModelSerializer):
+class LicenseLineSerializer(NetBoxModelSerializer):
+    status = ChoiceField(choices=CoverageStatusChoices, read_only=True)
+    billing_term = ChoiceField(choices=BillingTermChoices, required=False, allow_blank=True)
+    assigned_object_type = ContentTypeField(
+        queryset=ContentType.objects.filter(coverable_limit_choices_to()),
+        required=False,
+        allow_null=True,
+    )
+    assigned_object = GFKSerializerField(read_only=True)
+
     class Meta:
         model = LicenseLine
-        fields = ('id', 'license', 'device', 'license_type', 'billing_term',
-                  'start_date', 'end_date', 'renewal_date', 'price', 'license_key')
+        fields = ('id', 'url', 'display', 'license', 'assigned_object_type',
+                  'assigned_object_id', 'assigned_object', 'status', 'funding_line_item',
+                  'license_type', 'billing_term', 'start_date', 'end_date', 'price', 'license_key',
+                  'tags', 'custom_fields', 'created', 'last_updated')
+        brief_fields = ('id', 'url', 'display', 'license', 'status')
 
 
 class LifecycleRecordSerializer(NetBoxModelSerializer):

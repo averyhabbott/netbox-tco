@@ -1,0 +1,176 @@
+{% extends 'generic/_base.html' %}
+
+{% block title %}Attach TCO Item to {{ objects|length }} {{ verbose_name_plural|capfirst }}{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-lg-8">
+    <form method="post">
+      {% csrf_token %}
+      {% for obj in objects %}
+      <input type="hidden" name="pk" value="{{ obj.pk }}">
+      {% endfor %}
+      <input type="hidden" name="return_url" value="{{ return_url }}">
+
+      {% if errors %}
+      <div class="alert alert-danger" role="alert">
+        {% for error in errors %}<div>{{ error }}</div>{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="card mb-3">
+        <h5 class="card-header">TCO Item</h5>
+        <div class="card-body">
+          <div class="row mb-3">
+            <div class="col-sm-3 text-lg-end"><label class="col-form-label" for="tco-qpi">QPI</label></div>
+            <div class="col">
+              <select class="form-select no-ts" name="qpi" id="tco-qpi"></select>
+              <span class="form-text">Leave as (none) for contracts and licenses entered without a purchase record.</span>
+            </div>
+          </div>
+          <div class="row mb-3">
+            <div class="col-sm-3 text-lg-end"><label class="col-form-label required" for="tco-type">Type</label></div>
+            <div class="col"><select class="form-select no-ts" name="type" id="tco-type"></select></div>
+          </div>
+          <div class="row mb-3">
+            <div class="col-sm-3 text-lg-end"><label class="col-form-label required" for="tco-item">Item</label></div>
+            <div class="col">
+              <select class="form-select no-ts" name="item" id="tco-item"></select>
+              <span class="form-text" id="tco-item-help"></span>
+            </div>
+          </div>
+          <div id="tco-target-fields">
+            <div class="row mb-3">
+              <div class="col-sm-3 text-lg-end"><label class="col-form-label required" for="tco-start">Start date</label></div>
+              <div class="col">
+                <input type="date" class="form-control" name="start_date" id="tco-start" value="{{ selected.start_date }}">
+                <span class="form-text" id="tco-start-help"></span>
+              </div>
+            </div>
+            <div class="row mb-3">
+              <div class="col-sm-3 text-lg-end"><label class="col-form-label required" for="tco-target" id="tco-target-label">Put on</label></div>
+              <div class="col"><select class="form-select no-ts" name="target" id="tco-target"></select></div>
+            </div>
+            <div id="tco-new-fields">
+              <div class="row mb-3">
+                <div class="col-sm-3 text-lg-end"><label class="col-form-label required" for="tco-new-name">Name</label></div>
+                <div class="col"><input type="text" class="form-control" name="new_name" id="tco-new-name" maxlength="200" value="{{ selected.new_name }}"></div>
+              </div>
+              <div class="row mb-3">
+                <div class="col-sm-3 text-lg-end"><label class="col-form-label" for="tco-new-reference" id="tco-new-reference-label">Number</label></div>
+                <div class="col">
+                  <input type="text" class="form-control" name="new_reference" id="tco-new-reference" maxlength="200" value="{{ selected.new_reference }}">
+                  <span class="form-text">The vendor is taken from the line item's SKU.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="text-muted small mb-0" id="tco-explain"></p>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">Selected {{ verbose_name_plural|capfirst }} ({{ objects|length }})</h5>
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr><th>Name</th><th>Type</th><th>Serial</th><th>Current hardware line item</th></tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+              <tr>
+                <td><a href="{{ row.obj.get_absolute_url }}">{{ row.obj }}</a></td>
+                <td>{{ row.type|default:"—" }}</td>
+                <td>{{ row.obj.serial|default:"—" }}</td>
+                <td>{% if row.source %}<a href="{{ row.source.get_absolute_url }}">{{ row.source }}</a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="text-end">
+        <a href="{{ return_url }}" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" name="_confirm" value="1" class="btn btn-primary">Attach</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{ options|json_script:"tco-attach-options" }}
+{{ selected|json_script:"tco-attach-selected" }}
+{% endblock %}
+
+{% block javascript %}
+{{ block.super }}
+<script>
+  (function () {
+    var opts = JSON.parse(document.getElementById('tco-attach-options').textContent);
+    var sel = JSON.parse(document.getElementById('tco-attach-selected').textContent);
+    var qpi = document.getElementById('tco-qpi');
+    var type = document.getElementById('tco-type');
+    var item = document.getElementById('tco-item');
+    var target = document.getElementById('tco-target');
+    var NOUN = {support: 'support contract', license: 'license'};
+    var REF = {support: 'Contract ID', license: 'License number'};
+
+    function fill(select, choices, value, blank) {
+      select.innerHTML = '';
+      if (blank) select.add(new Option(blank, ''));
+      choices.forEach(function (c) { select.add(new Option(c.label, c.value)); });
+      if (value && choices.some(function (c) { return c.value === value; })) select.value = value;
+    }
+    function currentItem() {
+      return opts.items.find(function (i) { return i.value === item.value; });
+    }
+    function syncItems(value) {
+      var choices = opts.items.filter(function (i) { return i.qpi === qpi.value && i.type === type.value; });
+      fill(item, choices, value, choices.length ? '---------' : 'Nothing to attach for this QPI and type');
+      syncTarget(null);
+    }
+    function syncTarget(value) {
+      var t = type.value, it = currentItem();
+      var needsTarget = it && it.value.indexOf('li:') === 0 && t !== 'hardware';
+      document.getElementById('tco-target-fields').hidden = !needsTarget;
+      var explain = '';
+      if (needsTarget) {
+        document.getElementById('tco-target-label').textContent = 'Put on ' + NOUN[t];
+        document.getElementById('tco-new-reference-label').textContent = REF[t];
+        var choices = [{value: 'new', label: '— New ' + NOUN[t] + ' —'}].concat(opts.targets[t] || []);
+        fill(target, choices, value || it.target, null);
+        var start = document.getElementById('tco-start');
+        if (value === null || !start.value) start.value = it.start || opts.today;
+        document.getElementById('tco-start-help').textContent = it.start
+          ? 'From the line item. Change it for a device added partway through the term.'
+          : 'The line item has no start date, so this defaults to today.';
+        explain = 'Fills this line item\'s pending lines first, then adds new lines for its remaining units. ' +
+                  'New lines use this start date (pending lines keep their own). ' +
+                  'Anything already on the ' + NOUN[t] + ' for overlapping dates is skipped.';
+      } else if (it && t === 'hardware') {
+        explain = 'Sets the purchase (price and QPI) for each selected object. The device/module type must match, ' +
+                  'and objects already attached to a different hardware line item must be removed there first.';
+      } else if (it) {
+        explain = 'Fills this ' + NOUN[t] + '\'s pending lines.';
+      }
+      document.getElementById('tco-explain').textContent = explain;
+      syncNew();
+    }
+    function syncNew() {
+      var visible = !document.getElementById('tco-target-fields').hidden && target.value === 'new';
+      document.getElementById('tco-new-fields').hidden = !visible;
+      var name = document.getElementById('tco-new-name'), it = currentItem();
+      if (visible && !name.value && it && it.name) name.value = it.name;
+    }
+
+    fill(qpi, opts.qpis, sel.qpi || 'none', null);
+    fill(type, opts.types, sel.type, '---------');
+    syncItems(sel.item);
+    syncTarget(sel.target);
+    if (sel.start_date) document.getElementById('tco-start').value = sel.start_date;
+    qpi.addEventListener('change', function () { syncItems(null); });
+    type.addEventListener('change', function () { syncItems(null); });
+    item.addEventListener('change', function () { syncTarget(null); });
+    target.addEventListener('change', syncNew);
+  })();
+</script>
+{% endblock %}

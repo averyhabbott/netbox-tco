@@ -68,9 +68,6 @@ urlpatterns = [
     # Coverage Lines
     path('coverage-lines/', include(get_model_urls('netbox_tco', 'coverageline', detail=False))),
     path('coverage-lines/<int:pk>/', include(get_model_urls('netbox_tco', 'coverageline'))),
-    path('coverage-lines/assign/<str:model_name>/',
-         views.AssignCoverageView.as_view(),
-         name='coverageline_assign'),
     path('line-items/<int:pk>/add-to-support-contract/',
          views.AddToSupportContractView.as_view(),
          name='lineitem_add_to_support_contract'),
@@ -78,6 +75,18 @@ urlpatterns = [
     # Licenses
     path('licenses/', include(get_model_urls('netbox_tco', 'license', detail=False))),
     path('licenses/<int:pk>/', include(get_model_urls('netbox_tco', 'license'))),
+
+    # License Lines
+    path('license-lines/', include(get_model_urls('netbox_tco', 'licenseline', detail=False))),
+    path('license-lines/<int:pk>/', include(get_model_urls('netbox_tco', 'licenseline'))),
+    path('line-items/<int:pk>/add-to-license/',
+         views.AddToLicenseView.as_view(),
+         name='lineitem_add_to_license'),
+
+    # Attach TCO Item (core Device / Module list button)
+    path('attach/<str:model_name>/',
+         views.AttachTCOItemView.as_view(),
+         name='attach_tco_item'),
 
     # Lifecycle Records
     path('lifecycle/', include(get_model_urls('netbox_tco', 'lifecyclerecord', detail=False))),

@@ -2,15 +2,15 @@ from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
 from ..filtersets import (
-    CoverageLineFilterSet, LicenseFilterSet, LicenseTypeFilterSet, LifecycleRecordFilterSet,
+    CoverageLineFilterSet, LicenseFilterSet, LicenseLineFilterSet, LicenseTypeFilterSet, LifecycleRecordFilterSet,
     LineItemFilterSet, QPIFilterSet, ServiceLevelFilterSet, SupportContractFilterSet,
 )
 from ..models import (
-    CoverageLine, License, LicensePartNumber, LicenseType, LifecycleRecord, LineItem, QPI,
+    CoverageLine, License, LicenseLine, LicensePartNumber, LicenseType, LifecycleRecord, LineItem, QPI,
     ServiceLevel, ServiceLevelPartNumber, SupportContract,
 )
 from .serializers import (
-    CoverageLineSerializer, LicensePartNumberSerializer, LicenseSerializer, LicenseTypeSerializer,
+    CoverageLineSerializer, LicenseLineSerializer, LicensePartNumberSerializer, LicenseSerializer, LicenseTypeSerializer,
     LifecycleRecordSerializer, LineItemSerializer, QPISerializer,
     ServiceLevelPartNumberSerializer, ServiceLevelSerializer, SupportContractSerializer,
 )
@@ -70,10 +70,18 @@ class CoverageLineViewSet(NetBoxModelViewSet):
 
 class LicenseViewSet(NetBoxModelViewSet):
     queryset = License.objects.select_related('vendor').prefetch_related(
-        'predecessors', 'funding_line_items', 'tags'
+        'predecessors', 'tags'
     )
     serializer_class = LicenseSerializer
     filterset_class = LicenseFilterSet
+
+
+class LicenseLineViewSet(NetBoxModelViewSet):
+    queryset = LicenseLine.objects.select_related(
+        'license', 'funding_line_item', 'license_type', 'assigned_object_type',
+    ).prefetch_related('tags')
+    serializer_class = LicenseLineSerializer
+    filterset_class = LicenseLineFilterSet
 
 
 class LifecycleRecordViewSet(NetBoxModelViewSet):

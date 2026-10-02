@@ -1,13 +1,13 @@
-<form method="post" action="{{ assign_url }}" id="tco-assign-coverage-form" class="d-inline">
+<form method="post" action="{{ attach_url }}" id="tco-attach-form" class="d-inline">
   {% csrf_token %}
   <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
-  <button type="submit" class="btn btn-cyan" title="Add the selected rows to a support contract's pending coverage lines">
-    <i class="mdi mdi-shield-check"></i> Add to Support Contract
+  <button type="submit" class="btn btn-cyan" title="Attach the selected rows to a hardware, support, or license line item">
+    <i class="mdi mdi-link-plus"></i> Attach TCO Item
   </button>
 </form>
 <script>
   (function () {
-    var form = document.getElementById('tco-assign-coverage-form');
+    var form = document.getElementById('tco-attach-form');
     if (!form) return;
     form.addEventListener('submit', function (e) {
       form.querySelectorAll('input[name="pk"]').forEach(function (el) { el.remove(); });

@@ -5,7 +5,7 @@
 <div class="row mb-3">
   <div class="col col-md-6">
     <div class="card">
-      <h5 class="card-header">Support Contract</h5>
+      <h5 class="card-header">{{ noun|title }}</h5>
       <div class="card-body">
         <table class="table table-hover attr-table">
           <tbody>
@@ -18,8 +18,8 @@
               <td><a href="{{ object.vendor.get_absolute_url }}">{{ object.vendor }}</a></td>
             </tr>
             <tr>
-              <th scope="row">Contract ID</th>
-              <td>{{ object.contract_id|placeholder }}</td>
+              <th scope="row">{{ reference_label }}</th>
+              <td>{{ reference|placeholder }}</td>
             </tr>
             <tr>
               <th scope="row">Status</th>
@@ -117,14 +117,13 @@
     <div class="card">
       <h5 class="card-header d-flex justify-content-between align-items-center">
         <span>
-          Coverage Lines
+          {{ lines_label }}
           {% for label, count in status_counts.items %}
             <span class="badge text-bg-secondary ms-1">{{ count }} {{ label }}</span>
           {% endfor %}
         </span>
-        {% if perms.netbox_tco.add_coverageline %}
-        <a href="{% url 'plugins:netbox_tco:coverageline_add' %}?support_contract={{ object.pk }}&return_url={{ object.get_absolute_url }}"
-           class="btn btn-sm btn-primary">
+        {% if can_add_line %}
+        <a href="{{ line_add_url }}" class="btn btn-sm btn-primary">
           <i class="mdi mdi-plus-thick"></i> Add
         </a>
         {% endif %}
@@ -137,9 +136,9 @@
             <thead>
               <tr>
                 <th style="width:1%"><input type="checkbox" id="select-all-cl" class="form-check-input" title="Select all"></th>
-                <th>Covered Object</th>
+                <th>{% if is_license %}Licensed{% else %}Covered{% endif %} Object</th>
                 <th>Status</th>
-                <th>Service Level</th>
+                {% if is_license %}<th>License Type</th><th>Term</th>{% else %}<th>Service Level</th>{% endif %}
                 <th>Start</th>
                 <th>End</th>
                 <th>Price</th>
@@ -148,7 +147,7 @@
               </tr>
             </thead>
             <tbody>
-              {% for line in coverage_lines %}
+              {% for line in lines %}
               <tr>
                 <td><input type="checkbox" name="pk" value="{{ line.pk }}" class="form-check-input cl-cb"></td>
                 <td>
@@ -158,9 +157,14 @@
                   {% else %}{{ ''|placeholder }}{% endif %}
                 </td>
                 <td><span class="badge text-bg-{{ line.get_status_color }}">{{ line.get_status_display }}</span></td>
+                {% if is_license %}
+                <td><a href="{{ line.license_type.get_absolute_url }}">{{ line.license_type }}</a></td>
+                <td><span class="badge text-bg-{{ line.get_billing_term_color }}">{{ line.get_billing_term_display }}</span></td>
+                {% else %}
                 <td><a href="{{ line.service_level.get_absolute_url }}">{{ line.service_level }}</a></td>
+                {% endif %}
                 <td>{{ line.start_date }}</td>
-                <td>{{ line.end_date }}</td>
+                <td>{{ line.end_date|placeholder }}</td>
                 <td>${{ line.price|floatformat:2|intcomma }}</td>
                 <td>
                   {% if line.funding_line_item %}
@@ -169,8 +173,8 @@
                 </td>
                 <td class="text-end text-nowrap">
                   <a href="{{ line.get_absolute_url }}" class="btn btn-sm btn-outline-secondary">View</a>
-                  {% if perms.netbox_tco.change_coverageline %}
-                  <a href="{% url 'plugins:netbox_tco:coverageline_edit' pk=line.pk %}?return_url={{ object.get_absolute_url }}" class="btn btn-sm btn-warning">
+                  {% if can_change_line %}
+                  <a href="{{ line.get_absolute_url }}edit/?return_url={{ object.get_absolute_url }}" class="btn btn-sm btn-warning">
                     <i class="mdi mdi-pencil"></i>
                   </a>
                   {% endif %}
@@ -178,21 +182,21 @@
               </tr>
               {% empty %}
               <tr>
-                <td colspan="9" class="text-center text-muted py-3">No coverage lines.</td>
+                <td colspan="{% if is_license %}10{% else %}9{% endif %}" class="text-center text-muted py-3">No lines yet.</td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
-        {% if coverage_lines %}
+        {% if lines %}
         <div class="card-footer d-flex gap-2">
-          {% if perms.netbox_tco.change_coverageline %}
-          <button type="submit" formaction="{% url 'plugins:netbox_tco:coverageline_bulk_edit' %}" class="btn btn-sm btn-warning">
+          {% if can_change_line %}
+          <button type="submit" formaction="{{ line_bulk_edit_url }}" class="btn btn-sm btn-warning">
             <i class="mdi mdi-pencil"></i> Edit Selected
           </button>
           {% endif %}
-          {% if perms.netbox_tco.delete_coverageline %}
-          <button type="submit" formaction="{% url 'plugins:netbox_tco:coverageline_bulk_delete' %}" class="btn btn-sm btn-danger">
+          {% if can_delete_line %}
+          <button type="submit" formaction="{{ line_bulk_delete_url }}" class="btn btn-sm btn-danger">
             <i class="mdi mdi-trash-can-outline"></i> Delete Selected
           </button>
           {% endif %}

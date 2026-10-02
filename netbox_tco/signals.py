@@ -40,17 +40,18 @@ def _cleanup_provisioned_item(sender, instance, **kwargs):
         pass
 
 
-def _retire_coverage_lines(sender, instance, **kwargs):
-    """Unlink coverage lines from a deleted device/module and mark them Retired (price still counts)."""
+def _retire_lines(sender, instance, **kwargs):
+    """Unlink coverage/license lines from a deleted device/module and mark them Retired (price still counts)."""
     from .choices import CoverageStatusChoices
-    from .models import CoverageLine
+    from .models import CoverageLine, LicenseLine
     ct = ContentType.objects.get_for_model(sender)
-    for line in CoverageLine.objects.filter(assigned_object_type=ct, assigned_object_id=instance.pk):
-        line.snapshot()
-        line.assigned_object_type = None
-        line.assigned_object_id = None
-        line.status = CoverageStatusChoices.STATUS_RETIRED
-        line.save()
+    for line_model in (CoverageLine, LicenseLine):
+        for line in line_model.objects.filter(assigned_object_type=ct, assigned_object_id=instance.pk):
+            line.snapshot()
+            line.assigned_object_type = None
+            line.assigned_object_id = None
+            line.status = CoverageStatusChoices.STATUS_RETIRED
+            line.save()
 
 
 def register_signals():
@@ -59,4 +60,4 @@ def register_signals():
         post_save.connect(_sync_tco_line_item, sender=model, weak=False)
         pre_delete.connect(_cleanup_provisioned_item, sender=model, weak=False)
     for model in get_coverable_models():
-        pre_delete.connect(_retire_coverage_lines, sender=model, weak=False)
+        pre_delete.connect(_retire_lines, sender=model, weak=False)

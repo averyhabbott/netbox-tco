@@ -5,11 +5,11 @@ from netbox.filtersets import NetBoxModelFilterSet
 from utilities.filtersets import register_filterset
 
 from .choices import (
-    ContractStatusChoices, CoverageStatusChoices, LineItemTypeChoices, QPIStatusChoices,
+    BillingTermChoices, ContractStatusChoices, CoverageStatusChoices, LineItemTypeChoices, QPIStatusChoices,
     RenewalStatusChoices,
 )
 from .models import (
-    CoverageLine, License, LicenseType, LifecycleRecord, LineItem, QPI, ServiceLevel,
+    CoverageLine, License, LicenseLine, LicenseType, LifecycleRecord, LineItem, QPI, ServiceLevel,
     SupportContract,
 )
 
@@ -112,8 +112,21 @@ class SupportContractFilterSet(NetBoxModelFilterSet):
         )
 
 
+class AssignedObjectFilterMixin(django_filters.FilterSet):
+    device_id = django_filters.NumberFilter(method='filter_assigned', label='Device (ID)')
+    module_id = django_filters.NumberFilter(method='filter_assigned', label='Module (ID)')
+
+    def filter_assigned(self, queryset, name, value):
+        model_name = name.removesuffix('_id')
+        return queryset.filter(
+            assigned_object_type__app_label='dcim',
+            assigned_object_type__model=model_name,
+            assigned_object_id=value,
+        )
+
+
 @register_filterset
-class CoverageLineFilterSet(NetBoxModelFilterSet):
+class CoverageLineFilterSet(AssignedObjectFilterMixin, NetBoxModelFilterSet):
     support_contract_id = django_filters.ModelMultipleChoiceFilter(
         field_name='support_contract',
         queryset=SupportContract.objects.all(),
@@ -130,20 +143,10 @@ class CoverageLineFilterSet(NetBoxModelFilterSet):
         label='Service level',
     )
     status = django_filters.MultipleChoiceFilter(choices=CoverageStatusChoices)
-    device_id = django_filters.NumberFilter(method='filter_assigned', label='Device (ID)')
-    module_id = django_filters.NumberFilter(method='filter_assigned', label='Module (ID)')
 
     class Meta:
         model = CoverageLine
         fields = ['status', 'start_date', 'end_date', 'price']
-
-    def filter_assigned(self, queryset, name, value):
-        model_name = name.removesuffix('_id')
-        return queryset.filter(
-            assigned_object_type__app_label='dcim',
-            assigned_object_type__model=model_name,
-            assigned_object_id=value,
-        )
 
     def search(self, queryset, name, value):
         return queryset.filter(
@@ -164,10 +167,43 @@ class LicenseFilterSet(NetBoxModelFilterSet):
 
     class Meta:
         model = License
-        fields = ['status', 'renewal_status']
+        fields = ['name', 'status', 'renewal_status', 'license_number']
 
     def search(self, queryset, name, value):
-        return queryset.filter(vendor__name__icontains=value)
+        return queryset.filter(
+            Q(name__icontains=value) | Q(license_number__icontains=value) | Q(description__icontains=value)
+        )
+
+
+@register_filterset
+class LicenseLineFilterSet(AssignedObjectFilterMixin, NetBoxModelFilterSet):
+    license_id = django_filters.ModelMultipleChoiceFilter(
+        field_name='license',
+        queryset=License.objects.all(),
+        label='License',
+    )
+    funding_line_item_id = django_filters.ModelMultipleChoiceFilter(
+        field_name='funding_line_item',
+        queryset=LineItem.objects.all(),
+        label='Funding line item',
+    )
+    license_type_id = django_filters.ModelMultipleChoiceFilter(
+        field_name='license_type',
+        queryset=LicenseType.objects.all(),
+        label='License type',
+    )
+    status = django_filters.MultipleChoiceFilter(choices=CoverageStatusChoices)
+    billing_term = django_filters.MultipleChoiceFilter(choices=BillingTermChoices)
+
+    class Meta:
+        model = LicenseLine
+        fields = ['status', 'billing_term', 'start_date', 'end_date', 'price']
+
+    def search(self, queryset, name, value):
+        return queryset.filter(
+            Q(license__name__icontains=value) |
+            Q(license__license_number__icontains=value)
+        )
 
 
 @register_filterset

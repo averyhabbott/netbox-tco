@@ -35,7 +35,7 @@ menu = PluginMenu(
             ),
             PluginMenuItem(
                 link='plugins:netbox_tco:coverageline_list',
-                link_text='Coverage Lines',
+                link_text='Line Items',
                 permissions=['netbox_tco.view_coverageline'],
                 buttons=(
                     PluginMenuButton(
@@ -56,6 +56,19 @@ menu = PluginMenu(
                         title='Add',
                         icon_class='mdi mdi-plus-thick',
                         permissions=['netbox_tco.add_license'],
+                    ),
+                ),
+            ),
+            PluginMenuItem(
+                link='plugins:netbox_tco:licenseline_list',
+                link_text='Line Items',
+                permissions=['netbox_tco.view_licenseline'],
+                buttons=(
+                    PluginMenuButton(
+                        link='plugins:netbox_tco:licenseline_add',
+                        title='Add',
+                        icon_class='mdi mdi-plus-thick',
+                        permissions=['netbox_tco.add_licenseline'],
                     ),
                 ),
             ),

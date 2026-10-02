@@ -338,17 +338,15 @@ class Attachment(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Pillar 4 — Support Contracts
+# Pillars 4 & 5 — shared bases for Support Contracts and Licenses
 # ---------------------------------------------------------------------------
 
-class SupportContract(NetBoxModel):
+class ContractBase(NetBoxModel):
+    """
+    A durable contract (SupportContract) or License. Its dated lines carry the cost;
+    start, end, total, expiry, and funding line items are all derived from them.
+    """
     name = models.CharField(max_length=200)
-    vendor = models.ForeignKey(
-        'dcim.Manufacturer',
-        on_delete=models.PROTECT,
-        related_name='netbox_tco_support_contracts',
-    )
-    contract_id = models.CharField(max_length=200, blank=True, verbose_name='Contract ID')
     status = models.CharField(
         max_length=50,
         choices=ContractStatusChoices,
@@ -363,7 +361,7 @@ class SupportContract(NetBoxModel):
     renewal_date = models.DateField(
         null=True,
         blank=True,
-        help_text='Optional override. Leave blank to use the contract end date.',
+        help_text='Optional override. Leave blank to use the latest end date of its lines.',
     )
     predecessors = models.ManyToManyField(
         'self',
@@ -374,16 +372,18 @@ class SupportContract(NetBoxModel):
     )
     description = models.TextField(blank=True)
 
+    # Set by subclasses
+    lines_attr = None       # reverse accessor for the child lines
+    reference_attr = None   # vendor reference number field
+
     class Meta:
-        ordering = ['name']
+        abstract = True
 
     def __str__(self):
-        if self.contract_id:
-            return f'{self.name} ({self.contract_id})'
+        reference = getattr(self, self.reference_attr)
+        if reference:
+            return f'{self.name} ({reference})'
         return self.name
-
-    def get_absolute_url(self):
-        return reverse('plugins:netbox_tco:supportcontract', args=[self.pk])
 
     def get_status_color(self):
         return ContractStatusChoices.colors.get(self.status)
@@ -392,12 +392,17 @@ class SupportContract(NetBoxModel):
         return RenewalStatusChoices.colors.get(self.renewal_status)
 
     @property
+    def lines(self):
+        return getattr(self, self.lines_attr)
+
+    @property
     def start_date(self):
-        return self.coverage_lines.aggregate(d=models.Min('start_date'))['d']
+        return self.lines.aggregate(d=models.Min('start_date'))['d']
 
     @property
     def end_date(self):
-        return self.coverage_lines.aggregate(d=models.Max('end_date'))['d']
+        # Perpetual license lines have no end date and are ignored by Max()
+        return self.lines.aggregate(d=models.Max('end_date'))['d']
 
     @property
     def effective_renewal_date(self):
@@ -411,14 +416,14 @@ class SupportContract(NetBoxModel):
 
     @property
     def total_price(self):
-        return self.coverage_lines.aggregate(t=models.Sum('price'))['t'] or 0
+        return self.lines.aggregate(t=models.Sum('price'))['t'] or 0
 
     @property
     def funding_line_items(self):
-        return LineItem.objects.filter(coverage_lines__support_contract=self).distinct()
+        return LineItem.objects.filter(pk__in=self.lines.values('funding_line_item'))
 
     def apply_status_transitions(self, today=None):
-        """Pending → Active once started; an Active, started contract supersedes its predecessors."""
+        """Pending → Active once started; an Active, started record supersedes its predecessors."""
         from datetime import date
         today = today or date.today()
         start = self.start_date
@@ -437,13 +442,8 @@ class SupportContract(NetBoxModel):
                 predecessor.save()
 
 
-class CoverageLine(NetBoxModel):
-    """One device or module covered by a support contract for one term."""
-    support_contract = models.ForeignKey(
-        SupportContract,
-        on_delete=models.CASCADE,
-        related_name='coverage_lines',
-    )
+class ContractLineBase(NetBoxModel):
+    """One device or module on a contract or License for one term. Unassigned = pending."""
     assigned_object_type = models.ForeignKey(
         ContentType,
         on_delete=models.PROTECT,
@@ -454,21 +454,7 @@ class CoverageLine(NetBoxModel):
     )
     assigned_object_id = models.PositiveBigIntegerField(null=True, blank=True)
     assigned_object = GenericForeignKey('assigned_object_type', 'assigned_object_id')
-    funding_line_item = models.ForeignKey(
-        LineItem,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        limit_choices_to={'line_type': LineItemTypeChoices.TYPE_SUPPORT},
-        related_name='coverage_lines',
-    )
-    service_level = models.ForeignKey(
-        ServiceLevel,
-        on_delete=models.PROTECT,
-        related_name='coverage_lines',
-    )
     start_date = models.DateField()
-    end_date = models.DateField()
     price = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(
         max_length=50,
@@ -477,35 +463,43 @@ class CoverageLine(NetBoxModel):
         editable=False,
     )
 
+    # Set by subclasses
+    parent_attr = None          # FK to the contract / License
+    funding_line_type = None    # LineItem.line_type that can fund this line
+    sku_attr = None             # LineItem SKU field for this line type
+
     class Meta:
-        ordering = ['support_contract', '-end_date', 'pk']
-        indexes = [
-            models.Index(fields=['assigned_object_type', 'assigned_object_id']),
-        ]
+        abstract = True
 
     def __str__(self):
-        if self.assigned_object:
-            target = str(self.assigned_object)
-        else:
-            target = self.get_status_display()
-        return f'{target} — {self.start_date} to {self.end_date}'
+        target = str(self.assigned_object) if self.assigned_object else self.get_status_display()
+        if self.end_date:
+            return f'{target} — {self.start_date} to {self.end_date}'
+        return f'{target} — from {self.start_date}'
 
-    def get_absolute_url(self):
-        return reverse('plugins:netbox_tco:coverageline', args=[self.pk])
+    @property
+    def parent(self):
+        return getattr(self, self.parent_attr)
 
     def get_status_color(self):
         return CoverageStatusChoices.colors.get(self.status)
 
+    def has_end_date(self):
+        return True
+
+    def apply_type_defaults(self, line_item):
+        """Fill the type-specific reference (service level / license type) from the funding SKU."""
+        raise NotImplementedError
+
     def apply_funding_defaults(self):
-        """Fill blank service level, dates, and price from the funding line item."""
+        """Fill blank type, dates, and price from the funding line item."""
         li = self.funding_line_item
         if not li:
             return
-        if not self.service_level_id and li.support_sku_id:
-            self.service_level = li.support_sku.service_level
+        self.apply_type_defaults(li)
         if not self.start_date and li.start_date:
             self.start_date = li.start_date
-        if not self.end_date and li.end_date:
+        if self.has_end_date() and not self.end_date and li.end_date:
             self.end_date = li.end_date
         if self.price is None:
             self.price = li.unit_price
@@ -515,33 +509,35 @@ class CoverageLine(NetBoxModel):
         self.apply_funding_defaults()
         super().clean_fields(exclude=exclude)
 
+    def clean_terms(self):
+        """Type-specific required-field checks."""
+
     def clean(self):
         super().clean()
         self.apply_funding_defaults()
 
         li = self.funding_line_item
         if li is not None:
-            if li.line_type != LineItemTypeChoices.TYPE_SUPPORT:
-                raise ValidationError({'funding_line_item': 'Must be a support line item.'})
-            used = li.coverage_lines.exclude(pk=self.pk).count()
+            if li.line_type != self.funding_line_type:
+                raise ValidationError({
+                    'funding_line_item': f'Must be a {self.funding_line_type} line item.'
+                })
+            used = type(self).objects.filter(funding_line_item=li).exclude(pk=self.pk).count()
             if used >= li.quantity:
                 raise ValidationError({
                     'funding_line_item':
-                        f'This line item (qty {li.quantity}) already funds {used} coverage line(s).'
+                        f'This line item (qty {li.quantity}) already funds {used} line(s).'
                 })
 
         if self.assigned_object_type_id and (
             self.assigned_object_type.app_label, self.assigned_object_type.model
         ) not in [('dcim', m) for m in coverable_model_names()]:
-            raise ValidationError('Coverage can only be assigned to a device or module.')
+            raise ValidationError('Only a device or module can be assigned.')
 
-        if not self.service_level_id:
-            raise ValidationError({'service_level': 'Required (or choose a funding line item with a support SKU).'})
         if not self.start_date:
             raise ValidationError({'start_date': 'Required (or set a start date on the funding line item).'})
-        if not self.end_date:
-            raise ValidationError({'end_date': 'Required (or set a term on the funding line item).'})
-        if self.end_date < self.start_date:
+        self.clean_terms()
+        if self.end_date and self.end_date < self.start_date:
             raise ValidationError({'end_date': 'End date must be on or after the start date.'})
         if self.price is None:
             raise ValidationError({'price': 'Required (or choose a funding line item).'})
@@ -555,61 +551,116 @@ class CoverageLine(NetBoxModel):
 
 
 # ---------------------------------------------------------------------------
+# Pillar 4 — Support Contracts
+# ---------------------------------------------------------------------------
+
+class SupportContract(ContractBase):
+    vendor = models.ForeignKey(
+        'dcim.Manufacturer',
+        on_delete=models.PROTECT,
+        related_name='netbox_tco_support_contracts',
+    )
+    contract_id = models.CharField(max_length=200, blank=True, verbose_name='Contract ID')
+
+    lines_attr = 'coverage_lines'
+    reference_attr = 'contract_id'
+
+    class Meta:
+        ordering = ['name']
+
+    def get_absolute_url(self):
+        return reverse('plugins:netbox_tco:supportcontract', args=[self.pk])
+
+
+class CoverageLine(ContractLineBase):
+    """One device or module covered by a support contract for one term."""
+    support_contract = models.ForeignKey(
+        SupportContract,
+        on_delete=models.CASCADE,
+        related_name='coverage_lines',
+    )
+    funding_line_item = models.ForeignKey(
+        LineItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={'line_type': LineItemTypeChoices.TYPE_SUPPORT},
+        related_name='coverage_lines',
+    )
+    service_level = models.ForeignKey(
+        ServiceLevel,
+        on_delete=models.PROTECT,
+        related_name='coverage_lines',
+    )
+    end_date = models.DateField()
+
+    parent_attr = 'support_contract'
+    funding_line_type = LineItemTypeChoices.TYPE_SUPPORT
+    sku_attr = 'support_sku'
+
+    class Meta:
+        ordering = ['support_contract', '-end_date', 'pk']
+        indexes = [
+            models.Index(fields=['assigned_object_type', 'assigned_object_id']),
+        ]
+
+    def get_absolute_url(self):
+        return reverse('plugins:netbox_tco:coverageline', args=[self.pk])
+
+    def apply_type_defaults(self, line_item):
+        if not self.service_level_id and line_item.support_sku_id:
+            self.service_level = line_item.support_sku.service_level
+
+    def clean_terms(self):
+        if not self.service_level_id:
+            raise ValidationError({'service_level': 'Required (or choose a funding line item with a support SKU).'})
+        if not self.end_date:
+            raise ValidationError({'end_date': 'Required (or set a term on the funding line item).'})
+
+
+# ---------------------------------------------------------------------------
 # Pillar 5 — Licenses
 # ---------------------------------------------------------------------------
 
-class License(NetBoxModel):
+LICENSE_KEY_MASK = '********'
+
+
+class License(ContractBase):
     vendor = models.ForeignKey(
         'dcim.Manufacturer',
         on_delete=models.PROTECT,
         related_name='netbox_tco_licenses',
     )
-    status = models.CharField(
-        max_length=50,
-        choices=ContractStatusChoices,
-        default=ContractStatusChoices.STATUS_ACTIVE,
-    )
-    renewal_status = models.CharField(
-        max_length=50,
-        choices=RenewalStatusChoices,
-        default=RenewalStatusChoices.STATUS_OK,
-        editable=False,
-    )
-    predecessors = models.ManyToManyField(
-        'self',
-        symmetrical=False,
+    license_number = models.CharField(
+        max_length=200,
         blank=True,
-        related_name='successors',
+        help_text='Vendor subscription, entitlement, or agreement number.',
     )
-    funding_line_items = models.ManyToManyField(
-        LineItem,
-        blank=True,
-        limit_choices_to={'line_type': LineItemTypeChoices.TYPE_LICENSE},
-        related_name='netbox_tco_funded_licenses',
-    )
+
+    lines_attr = 'license_lines'
+    reference_attr = 'license_number'
 
     class Meta:
-        ordering = ['-created']
-
-    def __str__(self):
-        return f'License #{self.pk} — {self.vendor}'
+        ordering = ['name']
 
     def get_absolute_url(self):
         return reverse('plugins:netbox_tco:license', args=[self.pk])
 
 
-class LicenseLine(models.Model):
+class LicenseLine(ContractLineBase):
+    """One device or module licensed for one term (subscription) or from a start date (perpetual)."""
     license = models.ForeignKey(
         License,
         on_delete=models.CASCADE,
         related_name='license_lines',
     )
-    device = models.ForeignKey(
-        'dcim.Device',
+    funding_line_item = models.ForeignKey(
+        LineItem,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='netbox_tco_license_lines',
+        limit_choices_to={'line_type': LineItemTypeChoices.TYPE_LICENSE},
+        related_name='license_lines',
     )
     license_type = models.ForeignKey(
         LicenseType,
@@ -619,31 +670,62 @@ class LicenseLine(models.Model):
     billing_term = models.CharField(
         max_length=50,
         choices=BillingTermChoices,
-        default=BillingTermChoices.TERM_SUBSCRIPTION,
+        blank=True,
+        help_text='Leave blank to infer from the funding line item (a term means subscription).',
     )
-    start_date = models.DateField()
-    end_date = models.DateField(null=True, blank=True)
-    renewal_date = models.DateField(null=True, blank=True)
-    price = models.DecimalField(max_digits=12, decimal_places=2)
-    license_key = models.CharField(max_length=500, blank=True)
+    end_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Subscription only.',
+    )
+    license_key = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text='Shown on this page; masked in the change log.',
+    )
+
+    parent_attr = 'license'
+    funding_line_type = LineItemTypeChoices.TYPE_LICENSE
+    sku_attr = 'license_sku'
 
     class Meta:
-        ordering = ['license', 'device']
+        ordering = ['license', '-start_date', 'pk']
+        indexes = [
+            models.Index(fields=['assigned_object_type', 'assigned_object_id']),
+        ]
 
-    def __str__(self):
-        device_str = str(self.device) if self.device else 'Pending'
-        return f'{device_str} — {self.license_type}'
+    def get_absolute_url(self):
+        return reverse('plugins:netbox_tco:licenseline', args=[self.pk])
 
-    def clean(self):
-        super().clean()
-        if self.billing_term == BillingTermChoices.TERM_SUBSCRIPTION:
-            if not self.end_date:
-                raise ValidationError({'end_date': 'Required for subscription licenses.'})
-        if self.billing_term == BillingTermChoices.TERM_PERPETUAL:
-            if self.end_date:
-                raise ValidationError({'end_date': 'Perpetual licenses do not have an end date.'})
-            if self.renewal_date:
-                raise ValidationError({'renewal_date': 'Perpetual licenses do not have a renewal date.'})
+    def get_billing_term_color(self):
+        return BillingTermChoices.colors.get(self.billing_term)
+
+    def has_end_date(self):
+        return self.billing_term == BillingTermChoices.TERM_SUBSCRIPTION
+
+    def apply_type_defaults(self, line_item):
+        if not self.license_type_id and line_item.license_sku_id:
+            self.license_type = line_item.license_sku.license_type
+        if not self.billing_term:
+            self.billing_term = (BillingTermChoices.TERM_SUBSCRIPTION if line_item.term_months
+                                 else BillingTermChoices.TERM_PERPETUAL)
+
+    def clean_terms(self):
+        if not self.license_type_id:
+            raise ValidationError({'license_type': 'Required (or choose a funding line item with a license SKU).'})
+        if not self.billing_term:
+            raise ValidationError({'billing_term': 'Required (or choose a funding line item).'})
+        if self.billing_term == BillingTermChoices.TERM_SUBSCRIPTION and not self.end_date:
+            raise ValidationError({'end_date': 'Required for subscriptions (or set a term on the funding line item).'})
+        if self.billing_term == BillingTermChoices.TERM_PERPETUAL and self.end_date:
+            raise ValidationError({'end_date': 'Perpetual licenses do not have an end date.'})
+
+    def serialize_object(self, exclude=None):
+        # Keeps license keys out of the change log and event-rule snapshots
+        data = super().serialize_object(exclude=exclude)
+        if data.get('license_key'):
+            data['license_key'] = LICENSE_KEY_MASK
+        return data
 
 
 # ---------------------------------------------------------------------------

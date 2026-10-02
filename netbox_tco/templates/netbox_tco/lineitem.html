@@ -1,0 +1,305 @@
+{% extends 'generic/object.html' %}
+{% load builtins.filters humanize %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Line Item</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">QPI</th>
+              <td><a href="{{ object.qpi.get_absolute_url }}">{{ object.qpi }}</a></td>
+            </tr>
+            {% if object.name %}
+            <tr>
+              <th scope="row">Name</th>
+              <td>{{ object.name }}</td>
+            </tr>
+            {% endif %}
+            <tr>
+              <th scope="row">Type</th>
+              <td><span class="badge text-bg-{{ object.get_line_type_color }}">{{ object.get_line_type_display }}</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Description</th>
+              <td>{{ object.description|placeholder }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Pricing</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Quantity</th>
+              <td>{{ object.quantity }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Unit Price</th>
+              <td>${{ object.unit_price|floatformat:2|intcomma }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Line Total</th>
+              <td><strong>${{ object.line_total|floatformat:2|intcomma }}</strong></td>
+            </tr>
+            {% if object.term_months %}
+            <tr>
+              <th scope="row">Term</th>
+              <td>{{ object.term_months }} month{{ object.term_months|pluralize }}</td>
+            </tr>
+            {% endif %}
+            {% if object.start_date %}
+            <tr>
+              <th scope="row">Start Date</th>
+              <td>{{ object.start_date }}</td>
+            </tr>
+            {% endif %}
+            {% if object.end_date %}
+            <tr>
+              <th scope="row">End Date</th>
+              <td>{{ object.end_date }}</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mb-3">
+  <div class="col">
+    <div class="card">
+      <h5 class="card-header">Reference</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            {% if object.line_type == 'hardware' %}
+            {% if object.device_type %}
+            <tr>
+              <th scope="row">Device Type</th>
+              <td><a href="{{ object.device_type.get_absolute_url }}">{{ object.device_type }}</a></td>
+            </tr>
+            {% elif object.module_type %}
+            <tr>
+              <th scope="row">Module Type</th>
+              <td><a href="{{ object.module_type.get_absolute_url }}">{{ object.module_type }}</a></td>
+            </tr>
+            {% elif object.rack_type %}
+            <tr>
+              <th scope="row">Rack Type</th>
+              <td><a href="{{ object.rack_type.get_absolute_url }}">{{ object.rack_type }}</a></td>
+            </tr>
+            {% else %}
+            <tr>
+              <th scope="row">Hardware Reference</th>
+              <td>{{ ''|placeholder }}</td>
+            </tr>
+            {% endif %}
+            {% elif object.line_type == 'support' %}
+            <tr>
+              <th scope="row">Support SKU</th>
+              <td>{% if object.support_sku %}<code>{{ object.support_sku }}</code>{% else %}{{ ''|placeholder }}{% endif %}</td>
+            </tr>
+            <tr>
+              <th scope="row">Service Level</th>
+              <td>
+                {% if object.support_sku %}
+                  <a href="{{ object.support_sku.service_level.get_absolute_url }}">{{ object.support_sku.service_level }}</a>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Manufacturer</th>
+              <td>
+                {% if object.support_sku %}
+                  <a href="{{ object.support_sku.manufacturer.get_absolute_url }}">{{ object.support_sku.manufacturer }}</a>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+            </tr>
+            {% elif object.line_type == 'license' %}
+            <tr>
+              <th scope="row">License SKU</th>
+              <td>{% if object.license_sku %}<code>{{ object.license_sku }}</code>{% else %}{{ ''|placeholder }}{% endif %}</td>
+            </tr>
+            <tr>
+              <th scope="row">License Type</th>
+              <td>
+                {% if object.license_sku %}
+                  <a href="{{ object.license_sku.license_type.get_absolute_url }}">{{ object.license_sku.license_type }}</a>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Manufacturer</th>
+              <td>
+                {% if object.license_sku %}
+                  <a href="{{ object.license_sku.manufacturer.get_absolute_url }}">{{ object.license_sku.manufacturer }}</a>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if object.line_type == 'support' %}
+<div class="row">
+  <div class="col">
+    <div class="card">
+      <h5 class="card-header d-flex justify-content-between align-items-center">
+        Support Coverage
+        {% if coverage_remaining and perms.netbox_tco.add_coverageline %}
+        <a href="{% url 'plugins:netbox_tco:lineitem_add_to_support_contract' pk=object.pk %}" class="btn btn-sm btn-success">
+          <i class="mdi mdi-plus-thick"></i> Add to Support Contract ({{ coverage_remaining }} remaining)
+        </a>
+        {% endif %}
+      </h5>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Contract</th>
+              <th>Covered Object</th>
+              <th>Status</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in coverage_lines %}
+            <tr>
+              <td><a href="{{ line.support_contract.get_absolute_url }}">{{ line.support_contract }}</a></td>
+              <td>
+                {% if line.assigned_object %}<a href="{{ line.assigned_object.get_absolute_url }}">{{ line.assigned_object }}</a>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+              <td><span class="badge text-bg-{{ line.get_status_color }}">{{ line.get_status_display }}</span></td>
+              <td>{{ line.start_date }}</td>
+              <td>{{ line.end_date }}</td>
+              <td><a href="{{ line.get_absolute_url }}">${{ line.price|floatformat:2|intcomma }}</a></td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="6" class="text-center text-muted py-3">Not added to a support contract yet.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if object.line_type == 'hardware' %}
+<div class="row">
+  <div class="col">
+    <div class="card">
+      <h5 class="card-header d-flex justify-content-between align-items-center">
+        Provisioned Items
+        {% if provision_url %}
+        <a href="{{ provision_url }}" class="btn btn-sm btn-success">
+          <i class="mdi mdi-plus-thick"></i> Provision {{ remaining }} Item{{ remaining|pluralize }}
+        </a>
+        {% endif %}
+      </h5>
+      <form method="post" id="provisioned-items-form">
+        {% csrf_token %}
+        <input type="hidden" name="return_url" value="{{ request.path }}">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th style="width:1%"><input type="checkbox" id="select-all-pi" class="form-check-input" title="Select all"></th>
+                <th>Object</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Location</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in provisioned_items %}
+              {% with obj=item.target %}
+              <tr>
+                <td><input type="checkbox" name="pk" value="{{ item.pi.pk }}" class="form-check-input pi-cb"></td>
+                <td>
+                  {% if obj %}<a href="{{ obj.get_absolute_url }}">{{ obj }}</a>
+                  {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td>{{ item.pi.content_type.name|capfirst }}</td>
+                <td>
+                  {% if obj.status %}
+                    <span class="badge text-bg-{{ obj.get_status_color }}">{{ obj.get_status_display }}</span>
+                  {% else %}{{ ''|placeholder }}{% endif %}
+                </td>
+                <td>
+                  {% if obj.site %}<a href="{{ obj.site.get_absolute_url }}">{{ obj.site }}</a>
+                  {% elif obj.device %}<a href="{{ obj.device.get_absolute_url }}">{{ obj.device }}</a>
+                  {% else %}{{ ''|placeholder }}{% endif %}
+                </td>
+                <td class="text-end text-nowrap">
+                  {% if item.delete_url %}
+                  <a href="{{ item.delete_url }}" class="btn btn-sm btn-outline-danger" title="Delete this object">
+                    <i class="mdi mdi-trash-can-outline"></i>
+                  </a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endwith %}
+              {% empty %}
+              <tr>
+                <td colspan="6" class="text-center text-muted py-3">No items provisioned yet.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if provisioned_items %}
+        <div class="card-footer d-flex gap-2">
+          <button type="submit"
+                  formaction="{% url 'plugins:netbox_tco:provisioneditem_bulk_remove' %}"
+                  class="btn btn-sm btn-warning">
+            <i class="mdi mdi-link-off"></i> Remove Selected
+          </button>
+          <button type="submit"
+                  formaction="{% url 'plugins:netbox_tco:provisioneditem_bulk_delete' %}"
+                  class="btn btn-sm btn-danger">
+            <i class="mdi mdi-trash-can"></i> Delete Selected
+          </button>
+        </div>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block javascript %}
+{{ block.super }}
+<script>
+  (function () {
+    var selectAll = document.getElementById('select-all-pi');
+    if (!selectAll) return;
+    selectAll.addEventListener('change', function () {
+      document.querySelectorAll('.pi-cb').forEach(function (cb) {
+        cb.checked = selectAll.checked;
+      });
+    });
+  })();
+</script>
+{% endblock %}

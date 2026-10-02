@@ -1,0 +1,241 @@
+{% extends 'generic/object.html' %}
+{% load builtins.filters humanize %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">QPI</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Name</th>
+              <td>{{ object.name }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Status</th>
+              <td><span class="badge text-bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Owners</th>
+              <td>
+                {% for owner in object.owners.all %}
+                  {{ owner }}{% if not forloop.last %}, {% endif %}
+                {% empty %}
+                  {{ ''|placeholder }}
+                {% endfor %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Description</th>
+              <td>{{ object.description|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Total Price</th>
+              <td><strong>${{ qpi_total|floatformat:2|intcomma }}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    {% if object.tags.all %}
+    <div class="card">
+      <h5 class="card-header">Tags</h5>
+      <div class="card-body">
+        {% for tag in object.tags.all %}
+          <a href="?tag={{ tag.slug }}" class="btn btn-sm" style="background-color: {{ tag.color }}; color: #fff;">{{ tag }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Quote Dates</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Quote Requested</th>
+              <td>{{ object.quote_requested|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Quote Received</th>
+              <td>{{ object.quote_received|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Quote Signed</th>
+              <td>{{ object.quote_signed|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Quote Returned</th>
+              <td>
+                {{ object.quote_returned|placeholder }}
+                {% if object.auto_populate_returned %}
+                  <span class="text-muted small ms-2">(auto from Signed)</span>
+                {% endif %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Shipping</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Ship Date</th>
+              <td>{{ object.ship_date|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Received Date</th>
+              <td>{{ object.received_date|placeholder }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mb-3">
+  <div class="col">
+    <div class="card">
+      <h5 class="card-header d-flex justify-content-between align-items-center">
+        Line Items
+        {% if perms.netbox_tco.add_lineitem %}
+        <a href="{% url 'plugins:netbox_tco:lineitem_add' %}?qpi={{ object.pk }}"
+           class="btn btn-sm btn-primary">
+          <i class="mdi mdi-plus-thick"></i> Add
+        </a>
+        {% endif %}
+      </h5>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Name</th>
+              <th>Reference</th>
+              <th>SKU</th>
+              <th>Qty</th>
+              <th>Unit Price</th>
+              <th>Total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for li in line_items %}
+            <tr>
+              <td><span class="badge text-bg-{{ li.get_line_type_color }}">{{ li.get_line_type_display }}</span></td>
+              <td><a href="{{ li.get_absolute_url }}">{{ li.name|placeholder }}</a></td>
+              <td>
+                {% if li.line_type == 'hardware' %}
+                  {% if li.device_type %}<a href="{{ li.device_type.get_absolute_url }}">{{ li.device_type }}</a>{% else %}{{ ''|placeholder }}{% endif %}
+                {% elif li.line_type == 'support' %}
+                  {% if li.support_sku %}<a href="{{ li.support_sku.service_level.get_absolute_url }}">{{ li.support_sku.service_level }}</a>{% else %}{{ ''|placeholder }}{% endif %}
+                {% elif li.line_type == 'license' %}
+                  {% if li.license_sku %}<a href="{{ li.license_sku.license_type.get_absolute_url }}">{{ li.license_sku.license_type }}</a>{% else %}{{ ''|placeholder }}{% endif %}
+                {% endif %}
+              </td>
+              <td>
+                {% if li.support_sku %}<code>{{ li.support_sku }}</code>
+                {% elif li.license_sku %}<code>{{ li.license_sku }}</code>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+              <td>{{ li.quantity }}</td>
+              <td>${{ li.unit_price|floatformat:2|intcomma }}</td>
+              <td><strong>${{ li.line_total|floatformat:2|intcomma }}</strong></td>
+              <td class="text-end text-nowrap">
+                <a href="{{ li.get_absolute_url }}" class="btn btn-sm btn-outline-secondary">View</a>
+                {% if perms.netbox_tco.change_lineitem %}
+                <a href="{% url 'plugins:netbox_tco:lineitem_edit' pk=li.pk %}" class="btn btn-sm btn-warning">
+                  <i class="mdi mdi-pencil"></i>
+                </a>
+                {% endif %}
+                {% if perms.netbox_tco.delete_lineitem %}
+                <a href="{% url 'plugins:netbox_tco:lineitem_delete' pk=li.pk %}" class="btn btn-sm btn-danger">
+                  <i class="mdi mdi-trash-can-outline"></i>
+                </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="7" class="text-center text-muted py-3">No line items.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col">
+    <div class="card">
+      <h5 class="card-header d-flex justify-content-between align-items-center">
+        Attachments
+        {% if perms.netbox_tco.add_attachment %}
+        <a href="{% url 'plugins:netbox_tco:attachment_add' qpi_pk=object.pk %}"
+           class="btn btn-sm btn-primary">
+          <i class="mdi mdi-plus-thick"></i> Add
+        </a>
+        {% endif %}
+      </h5>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Description</th>
+              <th>Uploaded By</th>
+              <th>Date</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for att in attachments %}
+            <tr>
+              <td><a href="{{ att.file.url }}">{{ att.name }}</a></td>
+              <td>{{ att.document_type }}</td>
+              <td>{{ att.description|placeholder }}</td>
+              <td>{{ att.uploaded_by|placeholder }}</td>
+              <td>{{ att.created|date:"Y-m-d" }}</td>
+              <td class="text-end text-nowrap">
+                {% if perms.netbox_tco.change_attachment %}
+                <a href="{% url 'plugins:netbox_tco:attachment_edit' pk=att.pk %}" class="btn btn-sm btn-warning">
+                  <i class="mdi mdi-pencil"></i> Edit
+                </a>
+                {% endif %}
+                {% if perms.netbox_tco.delete_attachment %}
+                <a href="{% url 'plugins:netbox_tco:attachment_delete' pk=att.pk %}" class="btn btn-sm btn-danger">
+                  <i class="mdi mdi-trash-can-outline"></i> Delete
+                </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="6" class="text-center text-muted py-3">No attachments.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

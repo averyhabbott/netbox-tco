@@ -1,0 +1,22 @@
+{% extends 'generic/object.html' %}
+{% load form_helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">{{ title }}</h5>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          {% render_form form %}
+          <div class="d-flex justify-content-between mt-3">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

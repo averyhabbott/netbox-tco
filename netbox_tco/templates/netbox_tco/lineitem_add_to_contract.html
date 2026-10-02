@@ -1,0 +1,86 @@
+{% extends 'generic/_base.html' %}
+{% load form_helpers humanize %}
+
+{% block title %}Add to Support Contract{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-lg-8">
+    <p class="text-muted">
+      Line item <a href="{{ object.get_absolute_url }}">{{ object }}</a> on
+      <a href="{{ object.qpi.get_absolute_url }}">{{ object.qpi }}</a> —
+      <strong>{{ remaining }}</strong> of {{ object.quantity }} unit{{ object.quantity|pluralize }} not yet on a contract.
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      {% render_errors form %}
+
+      <div class="card mb-3">
+        <h5 class="card-header">Contract</h5>
+        <div class="card-body">
+          {% include 'netbox_tco/inc/radio_field.html' with field=form.mode %}
+          <div id="existing-contract-fields">
+            {% render_field form.existing_contract %}
+          </div>
+          <div id="new-contract-fields">
+            {% render_field form.name %}
+            {% render_field form.contract_id %}
+            {% render_field form.vendor %}
+            {% render_field form.predecessors %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">Coverage</h5>
+        <div class="card-body">
+          {% include 'netbox_tco/inc/radio_field.html' with field=form.seed %}
+          <div id="source-contract-fields">
+            {% render_field form.source_contract %}
+          </div>
+          <p class="text-muted small mb-0">
+            Devices and modules already covered on the chosen contract for overlapping dates are skipped.
+            Any units left over become pending lines you can assign later.
+          </p>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">Term</h5>
+        <div class="card-body">
+          {% render_field form.start_date %}
+          {% render_field form.end_date %}
+          {% render_field form.price %}
+        </div>
+      </div>
+
+      <div class="text-end">
+        <a href="{{ return_url }}" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">Create Coverage Lines</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block javascript %}
+{{ block.super }}
+<script>
+  (function () {
+    function checked(name) {
+      var el = document.querySelector('input[name="' + name + '"]:checked');
+      return el ? el.value : null;
+    }
+    function sync() {
+      var mode = checked('mode');
+      document.getElementById('existing-contract-fields').hidden = mode !== 'existing';
+      document.getElementById('new-contract-fields').hidden = mode !== 'new';
+      document.getElementById('source-contract-fields').hidden = checked('seed') !== 'contract';
+    }
+    document.querySelectorAll('input[name="mode"], input[name="seed"]').forEach(function (el) {
+      el.addEventListener('change', sync);
+    });
+    sync();
+  })();
+</script>
+{% endblock %}

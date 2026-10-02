@@ -1,0 +1,37 @@
+# Development artifacts (design notes, AI assistant files, editor workspaces)
+TCO Plugin/
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+*.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Packaging
+*.whl

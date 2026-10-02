@@ -1,0 +1,218 @@
+{% extends 'generic/object.html' %}
+{% load builtins.filters humanize %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Support Contract</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Name</th>
+              <td>{{ object.name }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Vendor</th>
+              <td><a href="{{ object.vendor.get_absolute_url }}">{{ object.vendor }}</a></td>
+            </tr>
+            <tr>
+              <th scope="row">Contract ID</th>
+              <td>{{ object.contract_id|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Status</th>
+              <td>
+                <span class="badge text-bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span>
+                {% if is_expired and object.status != 'cancelled' and object.status != 'superseded' %}
+                  <span class="badge text-bg-red">Expired</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Description</th>
+              <td>{{ object.description|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Total Price</th>
+              <td><strong>${{ contract_total|floatformat:2|intcomma }}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Term &amp; Renewal</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Start Date</th>
+              <td>{{ contract_start|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">End Date</th>
+              <td>{{ contract_end|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Renewal Date</th>
+              <td>
+                {% if object.renewal_date %}
+                  {{ object.renewal_date }} <span class="text-muted small ms-2">(override)</span>
+                {% else %}
+                  {{ contract_end|placeholder }}{% if contract_end %} <span class="text-muted small ms-2">(end date)</span>{% endif %}
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Renewal Status</th>
+              <td><span class="badge text-bg-{{ object.get_renewal_status_color }}">{{ object.get_renewal_status_display }}</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Replaces</th>
+              <td>
+                {% for c in object.predecessors.all %}
+                  <a href="{{ c.get_absolute_url }}">{{ c }}</a>{% if not forloop.last %}, {% endif %}
+                {% empty %}{{ ''|placeholder }}{% endfor %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Replaced By</th>
+              <td>
+                {% for c in object.successors.all %}
+                  <a href="{{ c.get_absolute_url }}">{{ c }}</a>{% if not forloop.last %}, {% endif %}
+                {% empty %}{{ ''|placeholder }}{% endfor %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h5 class="card-header">Funded By</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            {% for li in funding_line_items %}
+            <tr>
+              <td><a href="{{ li.qpi.get_absolute_url }}">{{ li.qpi }}</a></td>
+              <td><a href="{{ li.get_absolute_url }}">{{ li }}</a></td>
+            </tr>
+            {% empty %}
+            <tr><td class="text-muted">No funding line items.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% include 'inc/panels/tags.html' %}
+  </div>
+</div>
+
+<div class="row">
+  <div class="col">
+    <div class="card">
+      <h5 class="card-header d-flex justify-content-between align-items-center">
+        <span>
+          Coverage Lines
+          {% for label, count in status_counts.items %}
+            <span class="badge text-bg-secondary ms-1">{{ count }} {{ label }}</span>
+          {% endfor %}
+        </span>
+        {% if perms.netbox_tco.add_coverageline %}
+        <a href="{% url 'plugins:netbox_tco:coverageline_add' %}?support_contract={{ object.pk }}&return_url={{ object.get_absolute_url }}"
+           class="btn btn-sm btn-primary">
+          <i class="mdi mdi-plus-thick"></i> Add
+        </a>
+        {% endif %}
+      </h5>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="return_url" value="{{ object.get_absolute_url }}">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th style="width:1%"><input type="checkbox" id="select-all-cl" class="form-check-input" title="Select all"></th>
+                <th>Covered Object</th>
+                <th>Status</th>
+                <th>Service Level</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Price</th>
+                <th>Funded By</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for line in coverage_lines %}
+              <tr>
+                <td><input type="checkbox" name="pk" value="{{ line.pk }}" class="form-check-input cl-cb"></td>
+                <td>
+                  {% if line.assigned_object %}
+                    <a href="{{ line.assigned_object.get_absolute_url }}">{{ line.assigned_object }}</a>
+                    <span class="text-muted small">({{ line.assigned_object_type.name }})</span>
+                  {% else %}{{ ''|placeholder }}{% endif %}
+                </td>
+                <td><span class="badge text-bg-{{ line.get_status_color }}">{{ line.get_status_display }}</span></td>
+                <td><a href="{{ line.service_level.get_absolute_url }}">{{ line.service_level }}</a></td>
+                <td>{{ line.start_date }}</td>
+                <td>{{ line.end_date }}</td>
+                <td>${{ line.price|floatformat:2|intcomma }}</td>
+                <td>
+                  {% if line.funding_line_item %}
+                    <a href="{{ line.funding_line_item.get_absolute_url }}">{{ line.funding_line_item.qpi }}</a>
+                  {% else %}{{ ''|placeholder }}{% endif %}
+                </td>
+                <td class="text-end text-nowrap">
+                  <a href="{{ line.get_absolute_url }}" class="btn btn-sm btn-outline-secondary">View</a>
+                  {% if perms.netbox_tco.change_coverageline %}
+                  <a href="{% url 'plugins:netbox_tco:coverageline_edit' pk=line.pk %}?return_url={{ object.get_absolute_url }}" class="btn btn-sm btn-warning">
+                    <i class="mdi mdi-pencil"></i>
+                  </a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% empty %}
+              <tr>
+                <td colspan="9" class="text-center text-muted py-3">No coverage lines.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if coverage_lines %}
+        <div class="card-footer d-flex gap-2">
+          {% if perms.netbox_tco.change_coverageline %}
+          <button type="submit" formaction="{% url 'plugins:netbox_tco:coverageline_bulk_edit' %}" class="btn btn-sm btn-warning">
+            <i class="mdi mdi-pencil"></i> Edit Selected
+          </button>
+          {% endif %}
+          {% if perms.netbox_tco.delete_coverageline %}
+          <button type="submit" formaction="{% url 'plugins:netbox_tco:coverageline_bulk_delete' %}" class="btn btn-sm btn-danger">
+            <i class="mdi mdi-trash-can-outline"></i> Delete Selected
+          </button>
+          {% endif %}
+        </div>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block javascript %}
+{{ block.super }}
+<script>
+  (function () {
+    var selectAll = document.getElementById('select-all-cl');
+    if (!selectAll) return;
+    selectAll.addEventListener('change', function () {
+      document.querySelectorAll('.cl-cb').forEach(function (cb) { cb.checked = selectAll.checked; });
+    });
+  })();
+</script>
+{% endblock %}

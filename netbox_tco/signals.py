@@ -1,0 +1,62 @@
+from django.contrib.contenttypes.models import ContentType
+from django.db.models.signals import post_save, pre_delete
+from django.dispatch import receiver
+
+
+def _sync_tco_line_item(sender, instance, **kwargs):
+    """
+    When a Device, Module, or Rack is saved with a tco_line_item custom field value,
+    create or update the corresponding ProvisionedItem record. Clears the record when
+    the custom field is removed.
+    """
+    try:
+        from .models import LineItem, ProvisionedItem
+        line_item_pk = instance.custom_field_data.get('tco_line_item')
+        ct = ContentType.objects.get_for_model(sender)
+
+        if line_item_pk:
+            try:
+                line_item = LineItem.objects.get(pk=line_item_pk)
+                ProvisionedItem.objects.update_or_create(
+                    content_type=ct,
+                    object_id=instance.pk,
+                    defaults={'line_item': line_item},
+                )
+            except LineItem.DoesNotExist:
+                ProvisionedItem.objects.filter(content_type=ct, object_id=instance.pk).delete()
+        else:
+            ProvisionedItem.objects.filter(content_type=ct, object_id=instance.pk).delete()
+    except Exception:
+        pass
+
+
+def _cleanup_provisioned_item(sender, instance, **kwargs):
+    """Remove ProvisionedItem when its target object is deleted via any path."""
+    try:
+        from .models import ProvisionedItem
+        ct = ContentType.objects.get_for_model(sender)
+        ProvisionedItem.objects.filter(content_type=ct, object_id=instance.pk).delete()
+    except Exception:
+        pass
+
+
+def _retire_coverage_lines(sender, instance, **kwargs):
+    """Unlink coverage lines from a deleted device/module and mark them Retired (price still counts)."""
+    from .choices import CoverageStatusChoices
+    from .models import CoverageLine
+    ct = ContentType.objects.get_for_model(sender)
+    for line in CoverageLine.objects.filter(assigned_object_type=ct, assigned_object_id=instance.pk):
+        line.snapshot()
+        line.assigned_object_type = None
+        line.assigned_object_id = None
+        line.status = CoverageStatusChoices.STATUS_RETIRED
+        line.save()
+
+
+def register_signals():
+    from .provisioning import get_coverable_models, get_provisionable_models
+    for model in get_provisionable_models():
+        post_save.connect(_sync_tco_line_item, sender=model, weak=False)
+        pre_delete.connect(_cleanup_provisioned_item, sender=model, weak=False)
+    for model in get_coverable_models():
+        pre_delete.connect(_retire_coverage_lines, sender=model, weak=False)

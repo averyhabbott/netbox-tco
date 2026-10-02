@@ -1,0 +1,78 @@
+{% extends 'generic/object.html' %}
+{% load builtins.filters humanize %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Coverage Line</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Support Contract</th>
+              <td><a href="{{ object.support_contract.get_absolute_url }}">{{ object.support_contract }}</a></td>
+            </tr>
+            <tr>
+              <th scope="row">Covered Object</th>
+              <td>
+                {% if object.assigned_object %}
+                  <a href="{{ object.assigned_object.get_absolute_url }}">{{ object.assigned_object }}</a>
+                  <span class="text-muted small">({{ object.assigned_object_type.name }})</span>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Status</th>
+              <td>
+                <span class="badge text-bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span>
+                {% if object.status == 'retired' %}
+                  <span class="text-muted small ms-2">The covered object was deleted; see the changelog for what it was.</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Service Level</th>
+              <td><a href="{{ object.service_level.get_absolute_url }}">{{ object.service_level }}</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% include 'inc/panels/tags.html' %}
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Term &amp; Price</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Start Date</th>
+              <td>{{ object.start_date }}</td>
+            </tr>
+            <tr>
+              <th scope="row">End Date</th>
+              <td>{{ object.end_date }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Price</th>
+              <td><strong>${{ object.price|floatformat:2|intcomma }}</strong></td>
+            </tr>
+            <tr>
+              <th scope="row">Funded By</th>
+              <td>
+                {% if object.funding_line_item %}
+                  <a href="{{ object.funding_line_item.qpi.get_absolute_url }}">{{ object.funding_line_item.qpi }}</a> /
+                  <a href="{{ object.funding_line_item.get_absolute_url }}">{{ object.funding_line_item }}</a>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% include 'inc/panels/custom_fields.html' %}
+  </div>
+</div>
+{% endblock %}

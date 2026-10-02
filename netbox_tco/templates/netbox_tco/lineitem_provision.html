@@ -1,0 +1,31 @@
+{% extends 'generic/object.html' %}
+{% load form_helpers %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Provision Devices</h5>
+      <div class="card-body">
+        <p>
+          Line item: <strong>{{ object }}</strong><br>
+          Quantity: {{ object.quantity }}<br>
+          Already provisioned: {{ already_provisioned }}<br>
+          To be created: <strong>{{ remaining }}</strong>
+        </p>
+        {% if remaining > 0 %}
+        <form method="post">
+          {% csrf_token %}
+          {% render_form form %}
+          <button type="submit" class="btn btn-primary">Provision {{ remaining }} Device(s)</button>
+          <a href="{{ object.get_absolute_url }}" class="btn btn-outline-secondary">Cancel</a>
+        </form>
+        {% else %}
+        <div class="alert alert-info">All devices for this line item are already provisioned.</div>
+        <a href="{{ object.get_absolute_url }}" class="btn btn-outline-secondary">Back</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% load humanize %}
+{% if source_line_item or hardware_cost is not None or annual_recurring is not None or lifetime_cost is not None %}
+<div class="card">
+  <h5 class="card-header">TCO</h5>
+  <div class="card-body">
+    <table class="table table-hover attr-table">
+      <tbody>
+        {% if source_qpi %}
+        <tr>
+          <th scope="row">QPI</th>
+          <td><a href="{{ source_qpi.get_absolute_url }}">{{ source_qpi }}</a></td>
+        </tr>
+        {% endif %}
+        {% if source_line_item %}
+        <tr>
+          <th scope="row">Line Item</th>
+          <td><a href="{{ source_line_item.get_absolute_url }}">{{ source_line_item }}</a></td>
+        </tr>
+        {% endif %}
+        {% if hardware_cost is not None %}
+        <tr>
+          <th scope="row">Hardware (one-time)</th>
+          <td>${{ hardware_cost|floatformat:2|intcomma }}</td>
+        </tr>
+        {% endif %}
+        {% if annual_recurring is not None %}
+        <tr>
+          <th scope="row">Annual recurring</th>
+          <td>${{ annual_recurring|floatformat:2|intcomma }}</td>
+        </tr>
+        {% endif %}
+        {% if lifetime_cost is not None %}
+        <tr>
+          <th scope="row">Lifetime cost</th>
+          <td>
+            <strong>${{ lifetime_cost|floatformat:2|intcomma }}</strong>
+            <div class="text-muted small">Hardware + all support and license lines{% if includes_modules %}, including installed modules{% endif %}</div>
+          </td>
+        </tr>
+        {% endif %}
+        {% if per_port is not None %}
+        <tr>
+          <th scope="row">Per port</th>
+          <td>${{ per_port|floatformat:2|intcomma }}</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}

@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netbox-tco"
+dynamic = ["version"]
+description = "NetBox plugin for tracking hardware purchases, support contracts, licenses, and EOS/EOL dates, with per-device total cost of ownership"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Avery Abbott", email = "averyhabbott@yahoo.com" },
+]
+maintainers = [
+    { name = "Avery Abbott", email = "averyhabbott@yahoo.com" },
+]
+requires-python = ">=3.12"
+dependencies = []
+keywords = [
+    "netbox",
+    "netbox-plugin",
+    "plugin",
+    "tco",
+    "finops",
+    "procurement",
+    "support-contracts",
+    "licensing",
+    "lifecycle",
+    "eol",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Plugins",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 5.2",
+    "Framework :: Django :: 6.0",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Office/Business :: Financial",
+]
+
+[project.urls]
+Homepage = "https://github.com/averyhabbott/netbox-tco"
+Repository = "https://github.com/averyhabbott/netbox-tco"
+"Bug Tracker" = "https://github.com/averyhabbott/netbox-tco/issues"
+
+[project.entry-points."netbox.plugins"]
+netbox_tco = "netbox_tco"
+
+[tool.setuptools.dynamic]
+version = { attr = "netbox_tco.version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["netbox_tco*"]
+
+[tool.setuptools.package-data]
+netbox_tco = [
+    "templates/**/*.html",
+]

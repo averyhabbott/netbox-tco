@@ -1,0 +1,77 @@
+{% extends 'generic/_base.html' %}
+{% load helpers %}
+{% load i18n %}
+
+{% block title %}Delete {{ items|length }} Object{{ items|length|pluralize }}?{% endblock %}
+
+{% block content %}
+<div class="alert alert-danger bg-danger-subtle border border-danger" role="alert">
+  <div class="d-flex">
+    <div><i class="mdi mdi-alert-octagon p-2 fs-4"></i></div>
+    <div>
+      <h4 class="alert-heading">Confirm Deletion</h4>
+      <p class="mb-0">
+        The following operation will permanently delete
+        <strong>{{ items|length }} object{{ items|length|pluralize }}</strong>.
+        This cannot be undone.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <h5 class="card-header">Selected Objects</h5>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Object</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Location</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        {% with obj=item.target %}
+        <tr>
+          <td>
+            {% if obj %}<a href="{{ obj.get_absolute_url }}">{{ obj }}</a>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td>{{ item.pi.content_type.name|capfirst }}</td>
+          <td>
+            {% if obj.status %}
+              <span class="badge text-bg-{{ obj.get_status_color }}">{{ obj.get_status_display }}</span>
+            {% else %}{{ ''|placeholder }}{% endif %}
+          </td>
+          <td>
+            {% if obj.site %}<a href="{{ obj.site.get_absolute_url }}">{{ obj.site }}</a>
+            {% elif obj.device %}<a href="{{ obj.device.get_absolute_url }}">{{ obj.device }}</a>
+            {% else %}{{ ''|placeholder }}{% endif %}
+          </td>
+        </tr>
+        {% endwith %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  {% for pk in pk_list %}
+  <input type="hidden" name="pk" value="{{ pk }}">
+  {% endfor %}
+  <input type="hidden" name="return_url" value="{{ return_url }}">
+  <div class="d-flex gap-2">
+    <a href="{{ return_url }}" class="btn btn-outline-secondary">
+      <i class="mdi mdi-cancel"></i> Cancel
+    </a>
+    <button type="submit" name="_confirm" value="1" class="btn btn-danger">
+      <i class="mdi mdi-trash-can"></i>
+      Delete {{ items|length }} Object{{ items|length|pluralize }}
+    </button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends 'generic/_base.html' %}
+{% load form_helpers %}
+
+{% block title %}Add {{ objects|length }} {{ verbose_name_plural|capfirst }} to Support Contract{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col col-lg-8">
+    <form method="post">
+      {% csrf_token %}
+      {% for obj in objects %}
+      <input type="hidden" name="pk" value="{{ obj.pk }}">
+      {% endfor %}
+      <input type="hidden" name="return_url" value="{{ return_url }}">
+
+      <div class="card mb-3">
+        <h5 class="card-header">Support Contract</h5>
+        <div class="card-body">
+          {% render_errors form %}
+          {% render_field form.support_contract %}
+          <p class="text-muted small mb-0">
+            Selected {{ verbose_name_plural }} fill the contract's pending lines, oldest term first.
+            Anything already covered on that contract for the same dates is skipped.
+          </p>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h5 class="card-header">Selected {{ verbose_name_plural|capfirst }} ({{ objects|length }})</h5>
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr><th>Name</th><th>Serial</th></tr>
+            </thead>
+            <tbody>
+              {% for obj in objects %}
+              <tr>
+                <td><a href="{{ obj.get_absolute_url }}">{{ obj }}</a></td>
+                <td>{{ obj.serial|default:"—" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="text-end">
+        <a href="{{ return_url }}" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" name="_confirm" value="1" class="btn btn-primary">Assign</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

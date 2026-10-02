@@ -1,0 +1,29 @@
+<form method="post" action="{{ assign_url }}" id="tco-assign-coverage-form" class="d-inline">
+  {% csrf_token %}
+  <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
+  <button type="submit" class="btn btn-cyan" title="Add the selected rows to a support contract's pending coverage lines">
+    <i class="mdi mdi-shield-check"></i> Add to Support Contract
+  </button>
+</form>
+<script>
+  (function () {
+    var form = document.getElementById('tco-assign-coverage-form');
+    if (!form) return;
+    form.addEventListener('submit', function (e) {
+      form.querySelectorAll('input[name="pk"]').forEach(function (el) { el.remove(); });
+      var selected = document.querySelectorAll('#object_list input[name="pk"]:checked');
+      if (!selected.length) {
+        e.preventDefault();
+        alert('Select one or more rows first.');
+        return;
+      }
+      selected.forEach(function (cb) {
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'pk';
+        input.value = cb.value;
+        form.appendChild(input);
+      });
+    });
+  })();
+</script>

@@ -14,12 +14,6 @@ class NetBoxTCOConfig(PluginConfig):
     max_version = '4.7.99'
     default_settings = {
         'document_types': ['Quote', 'PO', 'Invoice', 'Contract', 'License', 'Other'],
-        'milestone_types': [
-            'End of Sale',
-            'End of SW Maintenance',
-            'End of Security Support',
-            'End of Support',
-        ],
         'renewal_thresholds': {
             'approaching': 90,
             'due': 30,

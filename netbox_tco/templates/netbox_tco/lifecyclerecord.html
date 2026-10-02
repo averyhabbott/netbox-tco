@@ -1,0 +1,148 @@
+{% extends 'generic/object.html' %}
+{% load builtins.filters %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Lifecycle Record</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Name</th>
+              <td>{{ object.name }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Vendor</th>
+              <td>
+                {% for m in object.manufacturers %}
+                  <a href="{{ m.get_absolute_url }}">{{ m }}</a>{% if not forloop.last %}, {% endif %}
+                {% empty %}{{ ''|placeholder }}{% endfor %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Description</th>
+              <td>{{ object.description|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Notice Date</th>
+              <td>{{ object.notice_date|placeholder }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Reference</th>
+              <td>
+                {% if object.reference_url %}
+                  <a href="{{ object.reference_url }}" target="_blank" rel="noopener">{{ object.reference_url }}</a>
+                {% else %}{{ ''|placeholder }}{% endif %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% include 'inc/panels/tags.html' %}
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header d-flex justify-content-between align-items-center">
+        Milestones
+        {% if perms.netbox_tco.add_lifecyclemilestone %}
+        <a href="{% url 'plugins:netbox_tco:lifecyclemilestone_add' record_pk=object.pk %}" class="btn btn-sm btn-primary">
+          <i class="mdi mdi-plus-thick"></i> Add
+        </a>
+        {% endif %}
+      </h5>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Milestone</th><th>Date</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for row in milestones %}
+            <tr{% if row.state == 'past' %} class="table-danger"{% elif row.state == 'soon' %} class="table-warning"{% endif %}>
+              <td>{% include 'netbox_tco/inc/milestone_badge.html' with type=row.milestone.milestone_type %}</td>
+              <td>
+                {{ row.milestone.date }}
+                {% if row.state == 'past' %}<span class="badge text-bg-red ms-1">Passed</span>
+                {% elif row.state == 'soon' %}<span class="badge text-bg-yellow ms-1">In {{ row.days }} day{{ row.days|pluralize }}</span>{% endif %}
+              </td>
+              <td class="text-end text-nowrap">
+                {% if perms.netbox_tco.change_lifecyclemilestone %}
+                <a href="{% url 'plugins:netbox_tco:lifecyclemilestone_edit' pk=row.milestone.pk %}" class="btn btn-sm btn-warning">
+                  <i class="mdi mdi-pencil"></i> Edit
+                </a>
+                {% endif %}
+                {% if perms.netbox_tco.delete_lifecyclemilestone %}
+                <a href="{% url 'plugins:netbox_tco:lifecyclemilestone_delete' pk=row.milestone.pk %}" class="btn btn-sm btn-danger">
+                  <i class="mdi mdi-trash-can-outline"></i> Delete
+                </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="text-center text-muted py-3">No milestones defined.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Device Types</h5>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Device Type</th><th>Manufacturer</th><th class="text-end">Devices</th></tr>
+          </thead>
+          <tbody>
+            {% for dt in device_types %}
+            <tr>
+              <td><a href="{{ dt.get_absolute_url }}">{{ dt.model }}</a></td>
+              <td><a href="{{ dt.manufacturer.get_absolute_url }}">{{ dt.manufacturer }}</a></td>
+              <td class="text-end"><a href="{% url 'dcim:device_list' %}?device_type_id={{ dt.pk }}">{{ dt.tco_instance_count }}</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="text-center text-muted py-3">None.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Module Types</h5>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Module Type</th><th>Manufacturer</th><th class="text-end">Modules</th></tr>
+          </thead>
+          <tbody>
+            {% for mt in module_types %}
+            <tr>
+              <td><a href="{{ mt.get_absolute_url }}">{{ mt.model }}</a></td>
+              <td><a href="{{ mt.manufacturer.get_absolute_url }}">{{ mt.manufacturer }}</a></td>
+              <td class="text-end"><a href="{% url 'dcim:module_list' %}?module_type_id={{ mt.pk }}">{{ mt.tco_instance_count }}</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" class="text-center text-muted py-3">None.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col">
+    {% url 'plugins:netbox_tco:lifecyclerecord_attachment_add' parent_pk=object.pk as attachment_add_url %}
+    {% include 'netbox_tco/inc/attachments_card.html' %}
+  </div>
+</div>
+{% endblock %}

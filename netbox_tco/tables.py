@@ -3,7 +3,7 @@ from netbox.tables import NetBoxTable, columns
 
 from .models import (
     CoverageLine, License, LicenseLine, LicensePartNumber, LicenseType,
-    LifecycleMilestone, LifecycleRecord, LineItem, QPI, ServiceLevel,
+    LifecycleMilestone, LifecycleRecord, LineItem, MilestoneType, QPI, ServiceLevel,
     ServiceLevelPartNumber, SupportContract,
 )
 
@@ -151,15 +151,48 @@ class LicenseLineTable(NetBoxTable):
                            'billing_term', 'start_date', 'end_date', 'price')
 
 
+class MilestoneTypeTable(NetBoxTable):
+    name = tables.Column(linkify=True)
+    color = columns.ColorColumn()
+    milestone_count = tables.Column(verbose_name='Used On')
+    tags = columns.TagColumn(url_name='plugins:netbox_tco:milestonetype_list')
+
+    class Meta(NetBoxTable.Meta):
+        model = MilestoneType
+        fields = ('pk', 'id', 'name', 'slug', 'color', 'weight', 'description', 'milestone_count', 'tags')
+        default_columns = ('pk', 'name', 'color', 'weight', 'milestone_count', 'description')
+
+
 class LifecycleRecordTable(NetBoxTable):
     name = tables.Column(linkify=True)
-    device_type_count = tables.Column(verbose_name='Device Types', orderable=False)
+    vendors = columns.TemplateColumn(
+        template_code='{% for m in record.manufacturers %}<a href="{{ m.get_absolute_url }}">{{ m }}</a>'
+                      '{% if not forloop.last %}, {% endif %}{% endfor %}',
+        orderable=False,
+        verbose_name='Vendor',
+    )
+    device_type_count = tables.Column(verbose_name='Device Types')
+    module_type_count = tables.Column(verbose_name='Module Types')
+    milestones = columns.TemplateColumn(
+        template_code='{% load builtins.filters %}{% for m in record.milestones.all %}'
+                      '<span class="badge" style="color: #{{ m.milestone_type.color|fgcolor }}; '
+                      'background-color: #{{ m.milestone_type.color }}">{{ m.milestone_type }}</span> {{ m.date }}'
+                      '{% if not forloop.last %}<br>{% endif %}{% endfor %}',
+        orderable=False,
+        verbose_name='Milestones',
+    )
+    reference_url = tables.TemplateColumn(
+        template_code='{% if value %}<a href="{{ value }}" target="_blank" rel="noopener">Link</a>{% endif %}',
+        verbose_name='Reference',
+    )
     tags = columns.TagColumn(url_name='plugins:netbox_tco:lifecyclerecord_list')
 
     class Meta(NetBoxTable.Meta):
         model = LifecycleRecord
-        fields = ('pk', 'name', 'notice_date', 'device_type_count', 'tags')
-        default_columns = ('name', 'notice_date', 'device_type_count')
+        fields = ('pk', 'id', 'name', 'vendors', 'description', 'notice_date', 'device_type_count',
+                  'module_type_count', 'milestones', 'reference_url', 'tags')
+        default_columns = ('pk', 'name', 'vendors', 'notice_date', 'device_type_count', 'module_type_count',
+                           'milestones')
 
 
 class LifecycleMilestoneTable(tables.Table):

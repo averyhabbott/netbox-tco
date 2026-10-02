@@ -117,28 +117,97 @@ class AttachListButton(PluginTemplateExtension):
         })
 
 
+def milestone_rows(record, today=None):
+    """
+    A record's milestones with a highlight state: 'past' once the date has passed, 'soon' within the
+    global 'approaching' renewal threshold (the same lead time Pillar 7 uses for renewals).
+    """
+    today = today or date.today()
+    soon_days = _soon_days()
+    rows = []
+    for m in sorted(record.milestones.all(), key=lambda m: m.date):
+        days = (m.date - today).days
+        rows.append({
+            'milestone': m,
+            'state': 'past' if days < 0 else 'soon' if days <= soon_days else '',
+            'days': days,
+        })
+    return rows
+
+
+def _soon_days():
+    from netbox.plugins import get_plugin_config
+    return get_plugin_config('netbox_tco', 'renewal_thresholds').get('approaching', 90)
+
+
 class DeviceEOLPanel(PluginTemplateExtension):
-    """Adds EOS/EOL milestone table to Device detail page."""
+    """EOS/EOL dates for the device's type, plus its installed modules' types."""
     models = ['dcim.device']
 
     def left_page(self):
-        device = self.context['object']
         from .models import LifecycleRecord
+        device = self.context['object']
+        record = LifecycleRecord.for_type(device.device_type)
 
-        try:
-            record = LifecycleRecord.objects.prefetch_related('milestones').get(
-                device_types=device.device_type
-            )
-            milestones = record.milestones.order_by('date')
-        except LifecycleRecord.DoesNotExist:
-            record = None
-            milestones = []
+        # Installed modules, grouped by the record covering their module type
+        groups = {}
+        for module in device.modules.select_related('module_type', 'module_bay').order_by('module_bay__name'):
+            module_record = LifecycleRecord.for_type(module.module_type)
+            if module_record:
+                groups.setdefault(module_record.pk, {'record': module_record, 'modules': []})['modules'].append(module)
+        module_groups = [
+            {**g, 'rows': milestone_rows(g['record'])}
+            for g in sorted(groups.values(), key=lambda g: g['record'].name)
+        ]
 
-        return self.render('netbox_tco/inc/device_eol.html', extra_context={
-            'lifecycle_record': record,
-            'milestones': milestones,
-            'today': date.today(),
+        if not record and not module_groups:
+            return ''
+        return self.render('netbox_tco/inc/lifecycle_panel.html', extra_context={
+            'record': record,
+            'rows': milestone_rows(record) if record else [],
+            'module_groups': module_groups,
+            'soon_days': _soon_days(),
         })
 
 
-template_extensions = [DeviceTCOPanel, DeviceEOLPanel, AttachListButton]
+class ModuleEOLPanel(PluginTemplateExtension):
+    """EOS/EOL dates for the module's type."""
+    models = ['dcim.module']
+
+    def left_page(self):
+        from .models import LifecycleRecord
+        record = LifecycleRecord.for_type(self.context['object'].module_type)
+        if not record:
+            return ''
+        return self.render('netbox_tco/inc/lifecycle_panel.html', extra_context={
+            'record': record,
+            'rows': milestone_rows(record),
+            'soon_days': _soon_days(),
+        })
+
+
+class TypeEOLPanel(PluginTemplateExtension):
+    """Which lifecycle record a device/module type belongs to (or a link to start one)."""
+    models = ['dcim.devicetype', 'dcim.moduletype']
+
+    def right_page(self):
+        from .models import LifecycleRecord
+        type_obj = self.context['object']
+        record = LifecycleRecord.for_type(type_obj)
+        field = 'device_types' if type_obj._meta.model_name == 'devicetype' else 'module_types'
+        add_url = None
+        if not record and self.context['request'].user.has_perm('netbox_tco.add_lifecyclerecord'):
+            add_url = (
+                f"{reverse('plugins:netbox_tco:lifecyclerecord_add')}?{field}={type_obj.pk}"
+                f"&return_url={type_obj.get_absolute_url()}"
+            )
+        return self.render('netbox_tco/inc/lifecycle_panel.html', extra_context={
+            'record': record,
+            'rows': milestone_rows(record) if record else [],
+            'soon_days': _soon_days(),
+            'show_empty': True,
+            'add_url': add_url,
+        })
+
+
+template_extensions = [DeviceTCOPanel, DeviceEOLPanel, ModuleEOLPanel, TypeEOLPanel, AttachListButton]

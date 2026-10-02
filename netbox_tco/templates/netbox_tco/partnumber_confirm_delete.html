@@ -6,7 +6,7 @@
     <div class="card border-danger">
       <h5 class="card-header bg-danger text-white">Confirm Delete</h5>
       <div class="card-body">
-        <p>Are you sure you want to delete part number <strong>{{ object }}</strong>?
+        <p>Are you sure you want to delete {{ noun|default:"part number" }} <strong>{{ target }}</strong>?
         This action cannot be undone.</p>
         <form method="post">
           {% csrf_token %}

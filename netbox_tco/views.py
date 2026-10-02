@@ -26,7 +26,7 @@ from .provisioning import coverable_limit_choices_to, coverable_model_names
 
 from .filtersets import (
     CoverageLineFilterSet, LicenseFilterSet, LicenseLineFilterSet, LicenseTypeFilterSet, LifecycleRecordFilterSet,
-    LineItemFilterSet, QPIFilterSet, ServiceLevelFilterSet, SupportContractFilterSet,
+    LineItemFilterSet, MilestoneTypeFilterSet, QPIFilterSet, ServiceLevelFilterSet, SupportContractFilterSet,
 )
 from .forms import (
     AddToContractForm, AddToLicenseForm, AddToSupportContractForm, AttachmentForm, CoverageLineBulkEditForm,
@@ -34,18 +34,18 @@ from .forms import (
     LicenseLineFilterForm, LicenseLineForm,
     LicensePartNumberForm, LicenseTypeForm, LicenseTypeFilterForm,
     LifecycleRecordForm, LifecycleRecordFilterForm, LifecycleMilestoneForm,
-    LineItemForm, LineItemFilterForm, QPIForm, QPIFilterForm,
+    LineItemForm, LineItemFilterForm, MilestoneTypeForm, MilestoneTypeFilterForm, QPIForm, QPIFilterForm,
     ServiceLevelForm, ServiceLevelFilterForm, ServiceLevelPartNumberForm,
     SupportContractForm, SupportContractFilterForm,
 )
 from .models import (
     Attachment, CoverageLine, License, LicenseLine, LicensePartNumber, LicenseType,
-    LifecycleMilestone, LifecycleRecord, LineItem, ProvisionedItem, QPI, ServiceLevel,
+    LifecycleMilestone, LifecycleRecord, LineItem, MilestoneType, ProvisionedItem, QPI, ServiceLevel,
     ServiceLevelPartNumber, SupportContract,
 )
 from .tables import (
     CoverageLineTable, LicenseLineTable, LicenseTable, LicenseTypeTable, LifecycleRecordTable,
-    LineItemTable, QPITable, ServiceLevelTable, SupportContractTable,
+    LineItemTable, MilestoneTypeTable, QPITable, ServiceLevelTable, SupportContractTable,
 )
 
 
@@ -185,7 +185,8 @@ class ServiceLevelPartNumberDeleteView(PermissionRequiredMixin, View):
     def get(self, request, pk):
         pn = get_object_or_404(ServiceLevelPartNumber, pk=pk)
         return render(request, 'netbox_tco/partnumber_confirm_delete.html', {
-            'object': pn,
+            'object': pn.service_level,
+            'target': pn,
             'cancel_url': pn.service_level.get_absolute_url(),
         })
 
@@ -265,7 +266,8 @@ class LicensePartNumberDeleteView(PermissionRequiredMixin, View):
     def get(self, request, pk):
         pn = get_object_or_404(LicensePartNumber, pk=pk)
         return render(request, 'netbox_tco/partnumber_confirm_delete.html', {
-            'object': pn,
+            'object': pn.license_type,
+            'target': pn,
             'cancel_url': pn.license_type.get_absolute_url(),
         })
 
@@ -282,36 +284,46 @@ class LicensePartNumberDeleteView(PermissionRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class AttachmentCreateView(PermissionRequiredMixin, View):
+    """Add an attachment to a parent object; subclasses set parent_model."""
     permission_required = 'netbox_tco.add_attachment'
+    parent_model = QPI
 
-    def get(self, request, qpi_pk):
-        qpi = get_object_or_404(QPI, pk=qpi_pk)
-        form = AttachmentForm()
+    def _render(self, request, parent, form):
         return render(request, 'netbox_tco/attachment_edit.html', {
-            'object': qpi,
+            'object': parent,
             'form': form,
-            'title': f'Add Attachment — {qpi}',
-            'cancel_url': qpi.get_absolute_url(),
+            'title': f'Add Attachment — {parent}',
+            'cancel_url': parent.get_absolute_url(),
         })
 
-    def post(self, request, qpi_pk):
-        from django.contrib.contenttypes.models import ContentType
-        qpi = get_object_or_404(QPI, pk=qpi_pk)
+    def get(self, request, parent_pk):
+        parent = get_object_or_404(self.parent_model, pk=parent_pk)
+        return self._render(request, parent, AttachmentForm())
+
+    def post(self, request, parent_pk):
+        parent = get_object_or_404(self.parent_model, pk=parent_pk)
         form = AttachmentForm(request.POST, request.FILES)
         if form.is_valid():
             att = form.save(commit=False)
-            att.content_type = ContentType.objects.get_for_model(QPI)
-            att.object_id = qpi.pk
+            att.content_type = ContentType.objects.get_for_model(self.parent_model)
+            att.object_id = parent.pk
             att.uploaded_by = request.user
             att.save()
             messages.success(request, f'Added attachment {att.name}.')
-            return redirect(qpi.get_absolute_url())
-        return render(request, 'netbox_tco/attachment_edit.html', {
-            'object': qpi,
-            'form': form,
-            'title': f'Add Attachment — {qpi}',
-            'cancel_url': qpi.get_absolute_url(),
-        })
+            return redirect(parent.get_absolute_url())
+        return self._render(request, parent, form)
+
+
+class SupportContractAttachmentCreateView(AttachmentCreateView):
+    parent_model = SupportContract
+
+
+class LicenseAttachmentCreateView(AttachmentCreateView):
+    parent_model = License
+
+
+class LifecycleRecordAttachmentCreateView(AttachmentCreateView):
+    parent_model = LifecycleRecord
 
 
 class AttachmentEditView(PermissionRequiredMixin, View):
@@ -353,7 +365,8 @@ class AttachmentDeleteView(PermissionRequiredMixin, View):
     def get(self, request, pk):
         att = get_object_or_404(Attachment, pk=pk)
         return render(request, 'netbox_tco/attachment_confirm_delete.html', {
-            'object': att,
+            'object': att.parent,
+            'target': att,
             'cancel_url': att.parent.get_absolute_url(),
         })
 
@@ -622,6 +635,12 @@ def _contract_context(request, instance):
         'is_expired': end is not None and end < date.today(),
         'contract_total': sum((l.price for l in lines), Decimal('0')),
         'funding_line_items': instance.funding_line_items.select_related('qpi'),
+        'attachments': Attachment.objects.filter(
+            content_type=ContentType.objects.get_for_model(instance), object_id=instance.pk,
+        ).select_related('uploaded_by'),
+        'attachment_add_url': reverse(
+            f'plugins:netbox_tco:{instance._meta.model_name}_attachment_add', kwargs={'parent_pk': instance.pk},
+        ),
     }
 
 
@@ -1364,8 +1383,9 @@ class ModuleLicensesView(_LicensesTabView):
 
 @register_model_view(LifecycleRecord, 'list', path='', detail=False)
 class LifecycleRecordListView(ObjectListView):
-    queryset = LifecycleRecord.objects.annotate(
-        device_type_count=Count('device_types')
+    queryset = LifecycleRecord.objects.prefetch_related('milestones__milestone_type').annotate(
+        device_type_count=Count('device_types', distinct=True),
+        module_type_count=Count('module_types', distinct=True),
     )
     table = LifecycleRecordTable
     filterset = LifecycleRecordFilterSet
@@ -1374,12 +1394,22 @@ class LifecycleRecordListView(ObjectListView):
 
 @register_model_view(LifecycleRecord)
 class LifecycleRecordView(ObjectView):
-    queryset = LifecycleRecord.objects.prefetch_related('device_types', 'milestones')
+    queryset = LifecycleRecord.objects.prefetch_related('device_types', 'module_types', 'milestones__milestone_type')
 
     def get_extra_context(self, request, instance):
+        from .template_content import milestone_rows
+        ct = ContentType.objects.get_for_model(LifecycleRecord)
         return {
-            'milestones': instance.milestones.order_by('date'),
-            'device_types': instance.device_types.select_related('manufacturer'),
+            'milestones': milestone_rows(instance),
+            'device_types': instance.device_types.select_related('manufacturer').annotate(
+                tco_instance_count=Count('instances', distinct=True),
+            ),
+            'module_types': instance.module_types.select_related('manufacturer').annotate(
+                tco_instance_count=Count('instances', distinct=True),
+            ),
+            'attachments': Attachment.objects.filter(
+                content_type=ct, object_id=instance.pk
+            ).select_related('uploaded_by'),
         }
 
 
@@ -1393,3 +1423,112 @@ class LifecycleRecordEditView(ObjectEditView):
 @register_model_view(LifecycleRecord, 'delete')
 class LifecycleRecordDeleteView(ObjectDeleteView):
     queryset = LifecycleRecord.objects.all()
+
+
+# ---------------------------------------------------------------------------
+# Milestone Types
+# ---------------------------------------------------------------------------
+
+@register_model_view(MilestoneType, 'list', path='', detail=False)
+class MilestoneTypeListView(ObjectListView):
+    queryset = MilestoneType.objects.annotate(milestone_count=Count('milestones'))
+    table = MilestoneTypeTable
+    filterset = MilestoneTypeFilterSet
+    filterset_form = MilestoneTypeFilterForm
+
+
+@register_model_view(MilestoneType)
+class MilestoneTypeView(ObjectView):
+    queryset = MilestoneType.objects.all()
+
+    def get_extra_context(self, request, instance):
+        return {'milestones': instance.milestones.select_related('lifecycle_record').order_by('date')}
+
+
+@register_model_view(MilestoneType, 'add', detail=False)
+@register_model_view(MilestoneType, 'edit')
+class MilestoneTypeEditView(ObjectEditView):
+    queryset = MilestoneType.objects.all()
+    form = MilestoneTypeForm
+
+
+@register_model_view(MilestoneType, 'delete')
+class MilestoneTypeDeleteView(ObjectDeleteView):
+    queryset = MilestoneType.objects.all()
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle Milestones
+# ---------------------------------------------------------------------------
+
+class LifecycleMilestoneCreateView(PermissionRequiredMixin, View):
+    permission_required = 'netbox_tco.add_lifecyclemilestone'
+
+    def _render(self, request, record, form):
+        return render(request, 'netbox_tco/partnumber_edit.html', {
+            'object': record,
+            'form': form,
+            'title': f'Add Milestone — {record}',
+            'cancel_url': record.get_absolute_url(),
+        })
+
+    def get(self, request, record_pk):
+        record = get_object_or_404(LifecycleRecord, pk=record_pk)
+        return self._render(request, record, LifecycleMilestoneForm(lifecycle_record=record))
+
+    def post(self, request, record_pk):
+        record = get_object_or_404(LifecycleRecord, pk=record_pk)
+        form = LifecycleMilestoneForm(request.POST, lifecycle_record=record)
+        if form.is_valid():
+            milestone = form.save(commit=False)
+            milestone.lifecycle_record = record
+            milestone.save()
+            messages.success(request, f'Added {milestone.milestone_type} date.')
+            return redirect(record.get_absolute_url())
+        return self._render(request, record, form)
+
+
+class LifecycleMilestoneEditView(PermissionRequiredMixin, View):
+    permission_required = 'netbox_tco.change_lifecyclemilestone'
+
+    def _render(self, request, milestone, form):
+        return render(request, 'netbox_tco/partnumber_edit.html', {
+            'object': milestone.lifecycle_record,
+            'form': form,
+            'title': f'Edit Milestone — {milestone.milestone_type}',
+            'cancel_url': milestone.lifecycle_record.get_absolute_url(),
+        })
+
+    def get(self, request, pk):
+        milestone = get_object_or_404(LifecycleMilestone, pk=pk)
+        form = LifecycleMilestoneForm(instance=milestone, lifecycle_record=milestone.lifecycle_record)
+        return self._render(request, milestone, form)
+
+    def post(self, request, pk):
+        milestone = get_object_or_404(LifecycleMilestone, pk=pk)
+        form = LifecycleMilestoneForm(request.POST, instance=milestone, lifecycle_record=milestone.lifecycle_record)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Updated {milestone.milestone_type} date.')
+            return redirect(milestone.lifecycle_record.get_absolute_url())
+        return self._render(request, milestone, form)
+
+
+class LifecycleMilestoneDeleteView(PermissionRequiredMixin, View):
+    permission_required = 'netbox_tco.delete_lifecyclemilestone'
+
+    def get(self, request, pk):
+        milestone = get_object_or_404(LifecycleMilestone, pk=pk)
+        return render(request, 'netbox_tco/partnumber_confirm_delete.html', {
+            'object': milestone.lifecycle_record,
+            'target': milestone,
+            'noun': 'milestone',
+            'cancel_url': milestone.lifecycle_record.get_absolute_url(),
+        })
+
+    def post(self, request, pk):
+        milestone = get_object_or_404(LifecycleMilestone, pk=pk)
+        record = milestone.lifecycle_record
+        milestone.delete()
+        messages.success(request, f'Deleted {milestone.milestone_type} date.')
+        return redirect(record.get_absolute_url())

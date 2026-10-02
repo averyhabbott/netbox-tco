@@ -1,0 +1,16 @@
+<table class="table table-hover mb-0">
+  <tbody>
+    {% for row in rows %}
+    <tr{% if row.state == 'past' %} class="table-danger"{% elif row.state == 'soon' %} class="table-warning"{% endif %}>
+      <th scope="row">{% include 'netbox_tco/inc/milestone_badge.html' with type=row.milestone.milestone_type %}</th>
+      <td>
+        {{ row.milestone.date }}
+        {% if row.state == 'past' %}<span class="badge text-bg-red ms-1">Passed</span>
+        {% elif row.state == 'soon' %}<span class="badge text-bg-yellow ms-1">In {{ row.days }} day{{ row.days|pluralize }}</span>{% endif %}
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="2" class="text-muted">No dates entered on this record yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

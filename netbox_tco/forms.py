@@ -12,7 +12,7 @@ from .choices import (
 )
 from .models import (
     Attachment, CoverageLine, License, LicenseLine, LicensePartNumber, LicenseType,
-    LifecycleMilestone, LifecycleRecord, LineItem, QPI, ServiceLevel,
+    LifecycleMilestone, LifecycleRecord, LineItem, MilestoneType, QPI, ServiceLevel,
     ServiceLevelPartNumber, SupportContract,
 )
 
@@ -638,36 +638,109 @@ class LifecycleRecordForm(NetBoxModelForm):
         required=False,
         label='Device types',
     )
+    module_types = DynamicModelMultipleChoiceField(
+        queryset=ModuleType.objects.all(),
+        required=False,
+        label='Module types',
+    )
 
     fieldsets = (
-        FieldSet('name', 'device_types', 'reference_url', 'notice_date', name='General'),
+        FieldSet('name', 'description', 'reference_url', 'notice_date', name='Lifecycle Record'),
+        FieldSet('device_types', 'module_types', name='Applies To'),
         FieldSet('tags', name='Tags'),
     )
 
     class Meta:
         model = LifecycleRecord
-        fields = ('name', 'device_types', 'reference_url', 'notice_date', 'tags')
+        fields = ('name', 'description', 'device_types', 'module_types', 'reference_url', 'notice_date', 'tags')
+        labels = {
+            'reference_url': 'Reference URL',
+            'notice_date': 'Notice date',
+        }
+        help_texts = {
+            'reference_url': "Link to the vendor's end-of-life bulletin.",
+            'notice_date': 'When the vendor announced it.',
+        }
         widgets = {
             'notice_date': forms.DateInput(attrs={'type': 'date'}),
         }
 
+    def clean(self):
+        super().clean()
+        cd = self.cleaned_data
+        for error in LifecycleRecord.type_conflicts(
+            device_types=list(cd.get('device_types') or []),
+            module_types=list(cd.get('module_types') or []),
+            exclude_pk=self.instance.pk,
+        ):
+            self.add_error(None, error)
+        return cd
+
 
 class LifecycleRecordFilterForm(NetBoxModelFilterSetForm):
     model = LifecycleRecord
+    fieldsets = (
+        FieldSet('q', 'filter_id', 'tag'),
+        FieldSet('manufacturer_id', 'device_type_id', 'module_type_id', name='Applies To'),
+    )
+    manufacturer_id = DynamicModelMultipleChoiceField(
+        queryset=Manufacturer.objects.all(),
+        required=False,
+        label='Vendor',
+    )
     device_type_id = DynamicModelMultipleChoiceField(
         queryset=DeviceType.objects.all(),
         required=False,
         label='Device type',
     )
+    module_type_id = DynamicModelMultipleChoiceField(
+        queryset=ModuleType.objects.all(),
+        required=False,
+        label='Module type',
+    )
 
 
 class LifecycleMilestoneForm(forms.ModelForm):
+    milestone_type = forms.ModelChoiceField(queryset=MilestoneType.objects.all(), label='Milestone')
+
+    def __init__(self, *args, lifecycle_record, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lifecycle_record = lifecycle_record
+
     class Meta:
         model = LifecycleMilestone
         fields = ('milestone_type', 'date')
         widgets = {
             'date': forms.DateInput(attrs={'type': 'date'}),
         }
+
+    def clean_milestone_type(self):
+        value = self.cleaned_data['milestone_type']
+        dupes = self.lifecycle_record.milestones.filter(milestone_type=value).exclude(pk=self.instance.pk)
+        if dupes.exists():
+            raise forms.ValidationError(f'This record already has an "{value}" date. Edit that one instead.')
+        return value
+
+
+# ---------------------------------------------------------------------------
+# Milestone Types
+# ---------------------------------------------------------------------------
+
+class MilestoneTypeForm(NetBoxModelForm):
+    slug = SlugField()
+
+    fieldsets = (
+        FieldSet('name', 'slug', 'color', 'weight', 'description', name='EOx Milestone'),
+        FieldSet('tags', name='Tags'),
+    )
+
+    class Meta:
+        model = MilestoneType
+        fields = ('name', 'slug', 'color', 'weight', 'description', 'tags')
+
+
+class MilestoneTypeFilterForm(NetBoxModelFilterSetForm):
+    model = MilestoneType
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ from django.db import models
 from django.urls import reverse
 from netbox.models import NetBoxModel
 from netbox.plugins import get_plugin_config
+from utilities.fields import ColorField
 
 from .choices import (
     BillingTermChoices, ContractStatusChoices, CoverageStatusChoices, LineItemTypeChoices,
@@ -307,7 +308,9 @@ class Attachment(models.Model):
     content_type = models.ForeignKey(
         ContentType,
         on_delete=models.CASCADE,
-        limit_choices_to=models.Q(app_label='netbox_tco', model__in=['qpi', 'supportcontract', 'license']),
+        limit_choices_to=models.Q(
+            app_label='netbox_tco', model__in=['qpi', 'supportcontract', 'license', 'lifecyclerecord'],
+        ),
     )
     object_id = models.PositiveBigIntegerField()
     parent = GenericForeignKey(ct_field='content_type', fk_field='object_id')
@@ -732,10 +735,44 @@ class LicenseLine(ContractLineBase):
 # Pillar 6 — EOS/EOL
 # ---------------------------------------------------------------------------
 
+class MilestoneType(NetBoxModel):
+    """Controlled vocabulary for lifecycle milestones (End of Sale, End of Support, ...)."""
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(max_length=100, unique=True)
+    color = ColorField(default='9e9e9e')
+    weight = models.PositiveSmallIntegerField(
+        default=100,
+        help_text='Display order in dropdowns and lists (lower first).',
+    )
+    description = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['weight', 'name']
+        verbose_name = 'EOx milestone'
+        verbose_name_plural = 'EOx milestones'
+
+    def __str__(self):
+        return self.name
+
+    def get_absolute_url(self):
+        return reverse('plugins:netbox_tco:milestonetype', args=[self.pk])
+
+
 class LifecycleRecord(NetBoxModel):
+    """
+    One vendor end-of-life notice. Device and module types each appear on at most one record,
+    so the dates shown for any device or module are unambiguous. The vendor is derived from the
+    attached types (same idea as part numbers).
+    """
     name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
     device_types = models.ManyToManyField(
         'dcim.DeviceType',
+        blank=True,
+        related_name='netbox_tco_lifecycle_records',
+    )
+    module_types = models.ManyToManyField(
+        'dcim.ModuleType',
         blank=True,
         related_name='netbox_tco_lifecycle_records',
     )
@@ -751,19 +788,36 @@ class LifecycleRecord(NetBoxModel):
     def get_absolute_url(self):
         return reverse('plugins:netbox_tco:lifecyclerecord', args=[self.pk])
 
-    def clean(self):
-        super().clean()
-        # Validate that each DeviceType appears in at most one LifecycleRecord.
-        # M2M is validated post-save via a signal; cross-record uniqueness checked here
-        # when editing existing records.
-        if self.pk:
-            qs = LifecycleRecord.objects.filter(
-                device_types__in=self.device_types.all()
-            ).exclude(pk=self.pk)
-            if qs.exists():
-                raise ValidationError(
-                    'One or more selected device types already belong to another lifecycle record.'
-                )
+    @property
+    def manufacturers(self):
+        from dcim.models import Manufacturer
+        return Manufacturer.objects.filter(
+            models.Q(device_types__netbox_tco_lifecycle_records=self) |
+            models.Q(module_types__netbox_tco_lifecycle_records=self)
+        ).distinct()
+
+    @classmethod
+    def type_conflicts(cls, device_types=(), module_types=(), exclude_pk=None):
+        """
+        Return error messages for any of the given types already on another record.
+        Checked in the form and API serializer, since M2M values aren't saved yet when clean() runs.
+        """
+        errors = []
+        for field, types in (('device_types', device_types), ('module_types', module_types)):
+            others = cls.objects.filter(**{f'{field}__in': types})
+            if exclude_pk:
+                others = others.exclude(pk=exclude_pk)
+            for record in others.distinct().prefetch_related(field):
+                taken = sorted(str(t) for t in getattr(record, field).all() if t in types)
+                errors.append(f'{", ".join(taken)} already on lifecycle record "{record}".')
+        return errors
+
+    @staticmethod
+    def for_type(type_obj):
+        """The record covering a DeviceType or ModuleType, or None."""
+        if type_obj is None:
+            return None
+        return type_obj.netbox_tco_lifecycle_records.prefetch_related('milestones__milestone_type').first()
 
 
 class LifecycleMilestone(models.Model):
@@ -772,11 +826,21 @@ class LifecycleMilestone(models.Model):
         on_delete=models.CASCADE,
         related_name='milestones',
     )
-    milestone_type = models.CharField(max_length=200)
+    milestone_type = models.ForeignKey(
+        MilestoneType,
+        on_delete=models.PROTECT,
+        related_name='milestones',
+    )
     date = models.DateField()
 
     class Meta:
-        ordering = ['date']
+        ordering = ['date', 'milestone_type__weight']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['lifecycle_record', 'milestone_type'],
+                name='netbox_tco_milestone_unique_type_per_record',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.milestone_type}: {self.date}'

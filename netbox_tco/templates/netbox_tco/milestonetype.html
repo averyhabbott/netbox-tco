@@ -1,0 +1,57 @@
+{% extends 'generic/object.html' %}
+{% load builtins.filters %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">EOx Milestone</h5>
+      <div class="card-body">
+        <table class="table table-hover attr-table">
+          <tbody>
+            <tr>
+              <th scope="row">Name</th>
+              <td>{% include 'netbox_tco/inc/milestone_badge.html' with type=object %}</td>
+            </tr>
+            <tr>
+              <th scope="row">Slug</th>
+              <td><code>{{ object.slug }}</code></td>
+            </tr>
+            <tr>
+              <th scope="row">Weight</th>
+              <td>{{ object.weight }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Description</th>
+              <td>{{ object.description|placeholder }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% include 'inc/panels/tags.html' %}
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h5 class="card-header">Used On ({{ milestones|length }})</h5>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr><th>Lifecycle Record</th><th>Date</th></tr>
+          </thead>
+          <tbody>
+            {% for m in milestones %}
+            <tr>
+              <td><a href="{{ m.lifecycle_record.get_absolute_url }}">{{ m.lifecycle_record }}</a></td>
+              <td>{{ m.date }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="2" class="text-center text-muted py-3">Not used on any lifecycle record.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

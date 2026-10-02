@@ -1,7 +1,7 @@
 from netbox.search import SearchIndex, register_search
 
 from .models import (
-    License, LicensePartNumber, LicenseType, LifecycleRecord,
+    License, LicensePartNumber, LicenseType, LifecycleRecord, MilestoneType,
     QPI, ServiceLevel, ServiceLevelPartNumber, SupportContract,
 )
 
@@ -75,8 +75,19 @@ class LicenseIndex(SearchIndex):
 
 
 @register_search
+class MilestoneTypeIndex(SearchIndex):
+    model = MilestoneType
+    fields = (
+        ('name', 100),
+        ('slug', 110),
+        ('description', 500),
+    )
+
+
+@register_search
 class LifecycleRecordIndex(SearchIndex):
     model = LifecycleRecord
     fields = (
         ('name', 100),
+        ('description', 500),
     )

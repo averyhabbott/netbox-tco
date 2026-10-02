@@ -54,6 +54,14 @@ def _retire_lines(sender, instance, **kwargs):
             line.save()
 
 
+def _delete_attachments(sender, instance, **kwargs):
+    """Attachments hang off a generic FK, so delete them (and their files) with their parent."""
+    from .models import Attachment
+    ct = ContentType.objects.get_for_model(sender)
+    for att in Attachment.objects.filter(content_type=ct, object_id=instance.pk):
+        att.delete()
+
+
 def register_signals():
     from .provisioning import get_coverable_models, get_provisionable_models
     for model in get_provisionable_models():
@@ -61,3 +69,6 @@ def register_signals():
         pre_delete.connect(_cleanup_provisioned_item, sender=model, weak=False)
     for model in get_coverable_models():
         pre_delete.connect(_retire_lines, sender=model, weak=False)
+    from .models import License, LifecycleRecord, QPI, SupportContract
+    for model in (QPI, SupportContract, License, LifecycleRecord):
+        pre_delete.connect(_delete_attachments, sender=model, weak=False)

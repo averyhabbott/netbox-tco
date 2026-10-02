@@ -1,0 +1,32 @@
+<div class="card">
+  <h5 class="card-header">End of Life</h5>
+  {% if record %}
+  <div class="card-body pb-0">
+    <a href="{{ record.get_absolute_url }}">{{ record }}</a>
+    {% if record.reference_url %}
+    <a href="{{ record.reference_url }}" target="_blank" rel="noopener" class="ms-2 small">Vendor notice <i class="mdi mdi-open-in-new"></i></a>
+    {% endif %}
+  </div>
+  {% include 'netbox_tco/inc/lifecycle_milestones.html' with rows=rows %}
+  {% elif show_empty %}
+  <div class="card-body">
+    <span class="text-muted">Not on any lifecycle record.</span>
+    {% if add_url %}<a href="{{ add_url }}" class="btn btn-sm btn-primary ms-2"><i class="mdi mdi-plus-thick"></i> Add Lifecycle Record</a>{% endif %}
+  </div>
+  {% endif %}
+  {% for group in module_groups %}
+  <div class="card-body pb-0{% if record or not forloop.first %} border-top{% endif %}">
+    <div class="small text-muted">Installed module{{ group.modules|length|pluralize }}:
+      {% for m in group.modules %}<a href="{{ m.get_absolute_url }}">{{ m.module_bay.name|default:m }}</a> ({{ m.module_type }}){% if not forloop.last %}, {% endif %}{% endfor %}
+    </div>
+    <a href="{{ group.record.get_absolute_url }}">{{ group.record }}</a>
+  </div>
+  {% include 'netbox_tco/inc/lifecycle_milestones.html' with rows=group.rows %}
+  {% endfor %}
+  {% if record or module_groups %}
+  <div class="card-footer small text-muted">
+    <span class="badge text-bg-red">Red</span> already passed ·
+    <span class="badge text-bg-yellow">Yellow</span> within {{ soon_days }} days
+  </div>
+  {% endif %}
+</div>

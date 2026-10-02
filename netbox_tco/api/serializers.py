@@ -9,7 +9,7 @@ from ..provisioning import coverable_limit_choices_to
 
 from ..models import (
     CoverageLine, License, LicenseLine, LicensePartNumber, LicenseType,
-    LifecycleMilestone, LifecycleRecord, LineItem, QPI, ServiceLevel,
+    LifecycleMilestone, LifecycleRecord, LineItem, MilestoneType, QPI, ServiceLevel,
     ServiceLevelPartNumber, SupportContract,
 )
 
@@ -144,15 +144,46 @@ class LicenseLineSerializer(NetBoxModelSerializer):
         brief_fields = ('id', 'url', 'display', 'license', 'status')
 
 
-class LifecycleRecordSerializer(NetBoxModelSerializer):
+class MilestoneTypeSerializer(NetBoxModelSerializer):
     class Meta:
-        model = LifecycleRecord
-        fields = ('id', 'url', 'display', 'name', 'device_types', 'reference_url',
-                  'notice_date', 'tags', 'custom_fields', 'created', 'last_updated')
-        brief_fields = ('id', 'url', 'display', 'name')
+        model = MilestoneType
+        fields = ('id', 'url', 'display', 'name', 'slug', 'color', 'weight', 'description',
+                  'tags', 'custom_fields', 'created', 'last_updated')
+        brief_fields = ('id', 'url', 'display', 'name', 'slug', 'color')
 
 
 class LifecycleMilestoneSerializer(serializers.ModelSerializer):
+    display = serializers.SerializerMethodField()
+
+    def get_display(self, obj):
+        return str(obj)
+
+    milestone_type = MilestoneTypeSerializer(nested=True, read_only=True)
+
     class Meta:
         model = LifecycleMilestone
-        fields = ('id', 'lifecycle_record', 'milestone_type', 'date')
+        fields = ('id', 'display', 'lifecycle_record', 'milestone_type', 'date')
+
+
+class LifecycleRecordSerializer(NetBoxModelSerializer):
+    milestones = LifecycleMilestoneSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = LifecycleRecord
+        fields = ('id', 'url', 'display', 'name', 'description', 'device_types', 'module_types',
+                  'reference_url', 'notice_date', 'milestones', 'tags', 'custom_fields', 'created',
+                  'last_updated')
+        brief_fields = ('id', 'url', 'display', 'name')
+
+    def validate(self, data):
+        data = super().validate(data)
+        instance = self.instance
+        device_types = data.get('device_types', instance.device_types.all() if instance else [])
+        module_types = data.get('module_types', instance.module_types.all() if instance else [])
+        errors = LifecycleRecord.type_conflicts(
+            device_types=list(device_types), module_types=list(module_types),
+            exclude_pk=instance.pk if instance else None,
+        )
+        if errors:
+            raise serializers.ValidationError({'non_field_errors': errors})
+        return data

@@ -1,6 +1,6 @@
 import django_filters
 from django.db.models import Q
-from dcim.models import DeviceType, Manufacturer
+from dcim.models import DeviceType, Manufacturer, ModuleType
 from netbox.filtersets import NetBoxModelFilterSet
 from utilities.filtersets import register_filterset
 
@@ -9,7 +9,7 @@ from .choices import (
     RenewalStatusChoices,
 )
 from .models import (
-    CoverageLine, License, LicenseLine, LicenseType, LifecycleRecord, LineItem, QPI, ServiceLevel,
+    CoverageLine, License, LicenseLine, LicenseType, LifecycleRecord, LineItem, MilestoneType, QPI, ServiceLevel,
     SupportContract,
 )
 
@@ -207,16 +207,43 @@ class LicenseLineFilterSet(AssignedObjectFilterMixin, NetBoxModelFilterSet):
 
 
 @register_filterset
+class MilestoneTypeFilterSet(NetBoxModelFilterSet):
+    class Meta:
+        model = MilestoneType
+        fields = ['name', 'slug', 'color', 'weight']
+
+    def search(self, queryset, name, value):
+        return queryset.filter(Q(name__icontains=value) | Q(description__icontains=value))
+
+
+@register_filterset
 class LifecycleRecordFilterSet(NetBoxModelFilterSet):
+    manufacturer_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Manufacturer.objects.all(),
+        method='filter_manufacturer',
+        label='Vendor (from device/module types)',
+    )
     device_type_id = django_filters.ModelMultipleChoiceFilter(
         field_name='device_types',
         queryset=DeviceType.objects.all(),
         label='Device type',
     )
+    module_type_id = django_filters.ModelMultipleChoiceFilter(
+        field_name='module_types',
+        queryset=ModuleType.objects.all(),
+        label='Module type',
+    )
 
     class Meta:
         model = LifecycleRecord
-        fields = ['name']
+        fields = ['name', 'notice_date']
+
+    def filter_manufacturer(self, queryset, name, value):
+        if not value:
+            return queryset
+        return queryset.filter(
+            Q(device_types__manufacturer__in=value) | Q(module_types__manufacturer__in=value)
+        ).distinct()
 
     def search(self, queryset, name, value):
-        return queryset.filter(name__icontains=value)
+        return queryset.filter(Q(name__icontains=value) | Q(description__icontains=value))

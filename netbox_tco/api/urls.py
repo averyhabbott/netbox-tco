@@ -13,6 +13,8 @@ router.register('support-contracts', views.SupportContractViewSet)
 router.register('coverage-lines', views.CoverageLineViewSet)
 router.register('licenses', views.LicenseViewSet)
 router.register('license-lines', views.LicenseLineViewSet)
+router.register('eox-milestones', views.MilestoneTypeViewSet)
 router.register('lifecycle-records', views.LifecycleRecordViewSet)
+router.register('lifecycle-milestones', views.LifecycleMilestoneViewSet)
 
 urlpatterns = router.urls

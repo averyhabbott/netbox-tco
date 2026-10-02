@@ -3,15 +3,15 @@ from rest_framework.viewsets import ReadOnlyModelViewSet
 
 from ..filtersets import (
     CoverageLineFilterSet, LicenseFilterSet, LicenseLineFilterSet, LicenseTypeFilterSet, LifecycleRecordFilterSet,
-    LineItemFilterSet, QPIFilterSet, ServiceLevelFilterSet, SupportContractFilterSet,
+    LineItemFilterSet, MilestoneTypeFilterSet, QPIFilterSet, ServiceLevelFilterSet, SupportContractFilterSet,
 )
 from ..models import (
-    CoverageLine, License, LicenseLine, LicensePartNumber, LicenseType, LifecycleRecord, LineItem, QPI,
+    CoverageLine, License, LicenseLine, LicensePartNumber, LicenseType, LifecycleMilestone, LifecycleRecord, LineItem, MilestoneType, QPI,
     ServiceLevel, ServiceLevelPartNumber, SupportContract,
 )
 from .serializers import (
     CoverageLineSerializer, LicenseLineSerializer, LicensePartNumberSerializer, LicenseSerializer, LicenseTypeSerializer,
-    LifecycleRecordSerializer, LineItemSerializer, QPISerializer,
+    LifecycleMilestoneSerializer, LifecycleRecordSerializer, LineItemSerializer, MilestoneTypeSerializer, QPISerializer,
     ServiceLevelPartNumberSerializer, ServiceLevelSerializer, SupportContractSerializer,
 )
 
@@ -84,7 +84,18 @@ class LicenseLineViewSet(NetBoxModelViewSet):
     filterset_class = LicenseLineFilterSet
 
 
+class MilestoneTypeViewSet(NetBoxModelViewSet):
+    queryset = MilestoneType.objects.prefetch_related('tags')
+    serializer_class = MilestoneTypeSerializer
+    filterset_class = MilestoneTypeFilterSet
+
+
 class LifecycleRecordViewSet(NetBoxModelViewSet):
-    queryset = LifecycleRecord.objects.prefetch_related('device_types', 'milestones', 'tags')
+    queryset = LifecycleRecord.objects.prefetch_related('device_types', 'module_types', 'milestones', 'tags')
     serializer_class = LifecycleRecordSerializer
     filterset_class = LifecycleRecordFilterSet
+
+
+class LifecycleMilestoneViewSet(ReadOnlyModelViewSet):
+    queryset = LifecycleMilestone.objects.select_related('lifecycle_record', 'milestone_type')
+    serializer_class = LifecycleMilestoneSerializer

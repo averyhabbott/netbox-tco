@@ -6,7 +6,7 @@
     <div class="card border-danger">
       <h5 class="card-header bg-danger text-white">Confirm Deletion</h5>
       <div class="card-body">
-        <p>Are you sure you want to delete the attachment <strong>{{ object.name }}</strong>?
+        <p>Are you sure you want to delete the attachment <strong>{{ target.name }}</strong>?
         The file will be permanently removed from storage.</p>
         <form method="post">
           {% csrf_token %}

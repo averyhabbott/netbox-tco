@@ -115,6 +115,19 @@ menu = PluginMenu(
                     ),
                 ),
             ),
+            PluginMenuItem(
+                link='plugins:netbox_tco:milestonetype_list',
+                link_text='EOx Milestones',
+                permissions=['netbox_tco.view_milestonetype'],
+                buttons=(
+                    PluginMenuButton(
+                        link='plugins:netbox_tco:milestonetype_add',
+                        title='Add',
+                        icon_class='mdi mdi-plus-thick',
+                        permissions=['netbox_tco.add_milestonetype'],
+                    ),
+                ),
+            ),
         )),
     ),
 )
